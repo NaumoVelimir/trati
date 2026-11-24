@@ -1,29 +1,45 @@
-// Траты — личный учёт расходов. Все данные хранятся локально в IndexedDB.
+// Expenses / Траты — личный учёт расходов. Все данные хранятся локально в IndexedDB.
 
 /* ============================== Константы ============================== */
 
 const CUR = {
-  VND: { sym: '₫', dec: 0, name: 'Донг' },
-  RUB: { sym: '₽', dec: 2, name: 'Рубль' },
-  USD: { sym: '$', dec: 2, name: 'Доллар' },
+  VND: { sym: '₫', dec: 0 },
+  RUB: { sym: '₽', dec: 2 },
+  USD: { sym: '$', dec: 2 },
 };
 const CUR_ORDER = ['VND', 'RUB', 'USD'];
 const SLOTS = 8;            // цвета категорий — фиксированная палитра, см. styles.css (--s0..--s7)
-const CHART_MAX = 7;        // в диаграмме максимум 7 категорий, остальное — «Другое»
+const CHART_MAX = 7;        // в диаграмме максимум 7 категорий, остальное — «ещё N»
 const RATE_API = [
   'https://cdn.jsdelivr.net/npm/@fawazahmed0/currency-api@latest/v1/currencies/usd.min.json',
   'https://latest.currency-api.pages.dev/v1/currencies/usd.min.json',
 ];
-// [иконка, название, слот цвета]. Цвета подобраны так, чтобы у самых крупных категорий они не совпадали.
+// Стандартные категории: [ключ, иконка, слот цвета]. Название берётся из словаря (cat_<ключ>),
+// пока пользователь его не переименовал, — поэтому оно меняется вместе с языком.
 const DEFAULT_CATS = [
-  ['🛒', 'Продукты', 0], ['🍜', 'Кафе и рестораны', 1], ['☕', 'Кофе', 3], ['🥡', 'Доставка', 1],
-  ['🛵', 'Транспорт', 0], ['🔑', 'Аренда', 2], ['🏠', 'Дом', 6], ['📱', 'Подписки', 7],
-  ['💊', 'Здоровье', 5], ['🎉', 'Развлечения', 4], ['👕', 'Одежда', 7], ['🇬🇧', 'Английский', 3],
-  ['🏋️', 'Спорт', 4], ['🚬', 'Сиги', 6], ['🎁', 'Подарки', 4], ['✈️', 'Путешествия', 0], ['📦', 'Другое', 5],
+  ['groceries', '🛒', 0], ['cafe', '🍜', 1], ['coffee', '☕', 3], ['delivery', '🥡', 1],
+  ['transport', '🛵', 0], ['rent', '🔑', 2], ['home', '🏠', 6], ['subscriptions', '📱', 7],
+  ['health', '💊', 5], ['leisure', '🎉', 4], ['clothes', '👕', 7], ['english', '🇬🇧', 3],
+  ['sport', '🏋️', 4], ['cigarettes', '🚬', 6], ['gifts', '🎁', 4], ['travel', '✈️', 0], ['other', '📦', 5],
 ];
-// Первый набор категорий (до 24.11.2026). Если пользователь его ещё не трогал — заменяем на новый.
+const EXTRA_KEYS = { shopping: ['🛍️', 2] };  // встречается в старых установках
+// Самый первый набор (до 24.11.2026): если его никто не трогал — заменяем целиком.
 const OLD_DEFAULT_NAMES = ['Продукты', 'Кафе и рестораны', 'Кофе', 'Транспорт', 'Жильё', 'Связь и подписки', 'Здоровье', 'Развлечения', 'Одежда', 'Покупки', 'Путешествия', 'Подарки', 'Другое'];
+// Названия из других приложений и старых версий → ключ категории.
+const CAT_ALIASES = {
+  groceries: 'groceries', food: 'groceries', продукты: 'groceries', cafe: 'cafe', restaurants: 'cafe', 'eating out': 'cafe',
+  'кафе и рестораны': 'cafe', кафе: 'cafe', coffee: 'coffee', кофе: 'coffee', delivery: 'delivery', доставка: 'delivery',
+  transportation: 'transport', transport: 'transport', taxi: 'transport', транспорт: 'transport',
+  rent: 'rent', аренда: 'rent', 'жильё': 'rent', 'жилье': 'rent', home: 'home', household: 'home', дом: 'home',
+  subscriptions: 'subscriptions', подписки: 'subscriptions', 'связь и подписки': 'subscriptions',
+  health: 'health', здоровье: 'health', leisure: 'leisure', entertainment: 'leisure', развлечения: 'leisure',
+  clothes: 'clothes', clothing: 'clothes', одежда: 'clothes', english: 'english', английский: 'english',
+  workout: 'sport', sport: 'sport', sports: 'sport', fitness: 'sport', спорт: 'sport',
+  сиги: 'cigarettes', cigarettes: 'cigarettes', сигареты: 'cigarettes', gifts: 'gifts', gift: 'gifts', подарки: 'gifts',
+  travel: 'travel', путешествия: 'travel', other: 'other', others: 'other', другое: 'other', shopping: 'shopping', покупки: 'shopping',
+};
 const DEFAULT_SETTINGS = {
+  lang: 'en',
   inputCur: 'VND',
   viewCur: 'RUB',
   rates: { USD: 1, VND: 26300, RUB: 80 },   // единиц валюты за 1 USD; заглушка до первого обновления
@@ -31,6 +47,142 @@ const DEFAULT_SETTINGS = {
   ratesSource: 'default',
   catsSeeded: false,
 };
+
+/* ============================== Словарь ============================== */
+
+const T = {
+  en: {
+    app_name: 'Expenses', period: 'Period', p_day: 'Day', p_week: 'Week', p_month: 'Month', p_year: 'Year', p_custom: 'Range',
+    prev_period: 'Previous period', next_period: 'Next period', report_currency: 'Report currency', from: 'From', to: 'To',
+    due_title: 'Time to pay', by_category: 'By category', clear_filter: 'Clear filter', converter: 'Converter',
+    cheat_sheet: 'Cheat sheet', more: 'More', overview: 'Overview', language: 'Language', recurring: 'Recurring', add: '+ Add',
+    recurring_hint: 'Fixed amounts are added automatically on their day. For amounts that change (rent with utilities) the app reminds you and you enter the amount.',
+    rec_find: 'Find recurring in history', categories: 'Categories', currencies: 'Currencies and rates',
+    default_input_cur: 'Default input currency', refresh_rates: 'Update rates', export_title: 'Export for analysis',
+    export_hint: 'CSV with all expenses for the period. Send it to your Mac (AirDrop or Telegram) and put it into the exports folder.',
+    exp_14: 'Last 14 days', exp_period: 'Period selected on Overview', exp_all: 'All expenses',
+    backup_title: 'Backup and import', backup_hint: 'Data is stored only on this device. Make a backup at least once a month.',
+    backup_save: 'Save backup (JSON)', backup_restore: 'Restore from backup', import_mm: 'Import from Money Manager (Excel/CSV)',
+    wipe: 'Delete all data', add_expense: 'Add expense', amount: 'Amount', today: 'Today', yesterday: 'Yesterday', date: 'Date',
+    note_ph: 'Comment (optional)', tap_category: 'Tap a category to save', delete: 'Delete', save: 'Save', icon: 'Icon',
+    name: 'Name', cat_delete: 'Delete category', rec_name_ph: 'Name (e.g. Rent)',
+    rec_variable: 'Amount changes — remind me instead of adding', category: 'Category', every: 'Every', interval: 'Interval',
+    unit_month: 'month(s)', unit_week: 'week(s)', unit_year: 'year(s)', rec_next: 'Next payment', active: 'Active',
+    rec_found: 'Recurring payments found', rec_found_hint: 'Tick the ones that are still active. Amount and day can be changed later.',
+    cancel: 'Cancel', add_selected: 'Add selected', import_title: 'Import from Money Manager', import: 'Import',
+    spent: 'Spent', of_total: '{p}% of {t}', more_cats: '{n} more',
+    vs_day: 'vs yesterday', vs_week: 'vs last week', vs_month: 'vs last month', vs_year: 'vs last year', vs_custom: 'vs previous period',
+    was: 'was {v}', prev_total: 'Previous period: {v}', no_expenses_period: 'No expenses in this period', new_cat: 'new',
+    no_category: 'No category', rec_hide: '🔁 Hide recurring', rec_show: '🔁 Recurring hidden — show',
+    by_days: 'By day', by_months: 'By month', avg_day: 'avg {v} per day', avg_month: 'avg {v} per month',
+    transactions: 'Transactions', empty_tx: 'Nothing yet. Tap “+” to add an expense.', show_more: 'Show more ({n})',
+    recurring_tag: '🔁 recurring', choose_cat: 'Choose a category', undo: 'Undo', restore_btn: 'Restore', saved: 'Saved',
+    deleted: 'Expense deleted', expenses_n: ['{n} expense', '{n} expenses'], archived: 'archived', cat_new: 'New category',
+    cat_title: 'Category', archive: 'Archive', unarchive: 'Unarchive', cat_archived: 'Category archived — old expenses are kept',
+    cat_unarchived: 'Category is active again', confirm_cat_delete: 'Delete category “{n}”?',
+    rec_added: ['{n} recurring expense added', '{n} recurring expenses added'],
+    every_month: 'every month', every_week: 'every week', every_year: 'every year',
+    every_n_month: 'every {n} months', every_n_week: 'every {n} weeks', every_n_year: 'every {n} years',
+    next: 'next {d}', paused: 'paused', varies: 'amount varies', per_month: '≈ per month',
+    rec_empty: 'E.g. rent, English lessons, subscriptions.', rec_title: 'Recurring expense', rec_new: 'New recurring expense',
+    next_on: 'Next payment: {d}', confirm_rec_delete: 'Delete recurring “{n}”? Expenses already added stay.',
+    due_pay: 'Enter', due_skip: 'Skip', due_usual: 'usually {v}', due_skipped: 'Skipped, next {d}',
+    cur_VND: 'Dong', cur_RUB: 'Ruble', cur_USD: 'Dollar',
+    rates_api: 'rate from {d}', rates_manual: 'rate set manually', rates_default: 'approximate rate — update it',
+    rates_info: '{m} ≈ {v} · {s}. Updates automatically once a day.', rates_updated: 'Rates updated',
+    rates_failed: 'Could not update rates — offline?', no_expenses_export: 'No expenses in this period',
+    restore_confirm: 'Replace current data with the backup from {d}? Expenses in backup: {n}.', restored: 'Data restored',
+    not_backup: 'This is not a backup of this app', storage_n: 'Expenses: {n}', last_backup: 'last backup {d}',
+    no_backup: 'no backups yet', persisted: 'storage protected from cleanup',
+    excel_fail: 'Could not load the Excel module — internet needed', no_cols: 'Could not find date, category and amount columns',
+    no_expenses_file: 'No expenses found in the file', read_fail: 'Could not read the file',
+    imp_found: 'Expenses found: <b>{n}</b>', imp_new: ', new: <b>{n}</b> (the rest are already here)',
+    imp_period: 'Period: {a} – {b}. Currencies: {c}.', imp_cats: 'Categories:', imp_newcat: '(new)',
+    imp_skipped: 'Skipped income and transfers: {n}.', imp_bad: 'Rows that could not be parsed: {n}.',
+    imported: 'Imported expenses: {n}',
+    wipe1: 'Delete all expenses, categories and recurring payments? This cannot be undone.',
+    wipe2: 'Sure? Better save a backup first.', sugg_none: 'Nothing recurring found in history',
+    sugg_times: '{n}× · last {d}', sugg_added: ['{n} recurring payment added', '{n} recurring payments added'],
+    cat_groceries: 'Groceries', cat_cafe: 'Cafes & restaurants', cat_coffee: 'Coffee', cat_delivery: 'Delivery',
+    cat_transport: 'Transport', cat_rent: 'Rent & utilities', cat_home: 'Home', cat_subscriptions: 'Subscriptions',
+    cat_health: 'Health', cat_leisure: 'Leisure', cat_clothes: 'Clothes', cat_english: 'English lessons', cat_sport: 'Sport',
+    cat_cigarettes: 'Cigarettes', cat_gifts: 'Gifts', cat_travel: 'Travel', cat_other: 'Other', cat_shopping: 'Shopping',
+  },
+  ru: {
+    app_name: 'Траты', period: 'Период', p_day: 'День', p_week: 'Неделя', p_month: 'Месяц', p_year: 'Год', p_custom: 'Период',
+    prev_period: 'Предыдущий период', next_period: 'Следующий период', report_currency: 'Валюта отчёта', from: 'С', to: 'По',
+    due_title: 'Пора оплатить', by_category: 'По категориям', clear_filter: 'Сбросить фильтр', converter: 'Конвертер',
+    cheat_sheet: 'Шпаргалка', more: 'Ещё', overview: 'Обзор', language: 'Язык', recurring: 'Регулярные траты', add: '+ Добавить',
+    recurring_hint: 'Постоянные суммы добавляются сами в нужный день. Если сумма меняется (аренда с коммуналкой), приложение напомнит, а сумму вы введёте сами.',
+    rec_find: 'Найти регулярные в истории', categories: 'Категории', currencies: 'Валюты и курс',
+    default_input_cur: 'Валюта ввода по умолчанию', refresh_rates: 'Обновить курс', export_title: 'Выгрузка для анализа',
+    export_hint: 'CSV со всеми тратами за период. Отправьте его на Mac (AirDrop или Telegram) и положите в папку exports.',
+    exp_14: 'Последние 14 дней', exp_period: 'Выбранный на «Обзоре» период', exp_all: 'Все траты',
+    backup_title: 'Резервная копия и импорт', backup_hint: 'Данные хранятся только на этом устройстве. Делайте копию хотя бы раз в месяц.',
+    backup_save: 'Сохранить резервную копию (JSON)', backup_restore: 'Восстановить из копии', import_mm: 'Импорт из Money Manager (Excel/CSV)',
+    wipe: 'Удалить все данные', add_expense: 'Добавить трату', amount: 'Сумма', today: 'Сегодня', yesterday: 'Вчера', date: 'Дата',
+    note_ph: 'Комментарий (необязательно)', tap_category: 'Нажмите категорию — трата сохранится', delete: 'Удалить', save: 'Сохранить',
+    icon: 'Иконка', name: 'Название', cat_delete: 'Удалить категорию', rec_name_ph: 'Название (например, Аренда)',
+    rec_variable: 'Сумма меняется — напоминать, а не добавлять', category: 'Категория', every: 'Каждые', interval: 'Интервал',
+    unit_month: 'мес.', unit_week: 'нед.', unit_year: 'год', rec_next: 'Следующее списание', active: 'Активна',
+    rec_found: 'Найденные регулярные платежи', rec_found_hint: 'Отметьте те, что ещё действуют. Сумму и день можно поменять потом.',
+    cancel: 'Отмена', add_selected: 'Добавить выбранные', import_title: 'Импорт из Money Manager', import: 'Импортировать',
+    spent: 'Потрачено', of_total: '{p}% от {t}', more_cats: 'Ещё {n} кат.',
+    vs_day: 'ко вчера', vs_week: 'к прошлой неделе', vs_month: 'к прошлому месяцу', vs_year: 'к прошлому году', vs_custom: 'к предыдущему периоду',
+    was: 'было {v}', prev_total: 'В предыдущем периоде: {v}', no_expenses_period: 'Трат за этот период нет', new_cat: 'новое',
+    no_category: 'Без категории', rec_hide: '🔁 Скрыть регулярные траты', rec_show: '🔁 Регулярные траты скрыты — показать',
+    by_days: 'По дням', by_months: 'По месяцам', avg_day: 'в среднем {v} в день', avg_month: 'в среднем {v} в мес.',
+    transactions: 'Операции', empty_tx: 'Пока пусто. Нажмите «+», чтобы добавить трату.', show_more: 'Показать ещё ({n})',
+    recurring_tag: '🔁 регулярная', choose_cat: 'Выберите категорию', undo: 'Отменить', restore_btn: 'Вернуть', saved: 'Сохранено',
+    deleted: 'Трата удалена', expenses_n: ['{n} трата', '{n} траты', '{n} трат'], archived: 'в архиве', cat_new: 'Новая категория',
+    cat_title: 'Категория', archive: 'В архив', unarchive: 'Вернуть из архива', cat_archived: 'Категория в архиве: старые траты сохранены',
+    cat_unarchived: 'Категория снова активна', confirm_cat_delete: 'Удалить категорию «{n}»?',
+    rec_added: ['Добавлена {n} регулярная трата', 'Добавлено {n} регулярные траты', 'Добавлено {n} регулярных трат'],
+    every_month: 'каждый месяц', every_week: 'каждую неделю', every_year: 'каждый год',
+    every_n_month: 'каждые {n} мес.', every_n_week: 'каждые {n} нед.', every_n_year: 'каждые {n} г.',
+    next: 'след. {d}', paused: 'на паузе', varies: 'сумма меняется', per_month: '≈ в месяц',
+    rec_empty: 'Например: аренда, английский, подписки.', rec_title: 'Регулярная трата', rec_new: 'Новая регулярная трата',
+    next_on: 'Следующее списание: {d}', confirm_rec_delete: 'Удалить регулярную трату «{n}»? Уже добавленные траты останутся.',
+    due_pay: 'Внести', due_skip: 'Пропустить', due_usual: 'обычно {v}', due_skipped: 'Пропущено, следующее {d}',
+    cur_VND: 'Донг', cur_RUB: 'Рубль', cur_USD: 'Доллар',
+    rates_api: 'курс от {d}', rates_manual: 'курс задан вручную', rates_default: 'курс приблизительный — обновите',
+    rates_info: '{m} ≈ {v} · {s}. Обновляется автоматически раз в день.', rates_updated: 'Курс обновлён',
+    rates_failed: 'Не удалось обновить курс — нет интернета?', no_expenses_export: 'За этот период трат нет',
+    restore_confirm: 'Заменить текущие данные копией от {d}? Трат в копии: {n}.', restored: 'Данные восстановлены',
+    not_backup: 'Это не резервная копия этого приложения', storage_n: 'Трат: {n}', last_backup: 'последняя копия {d}',
+    no_backup: 'копий ещё не было', persisted: 'хранилище защищено от очистки',
+    excel_fail: 'Не удалось загрузить модуль Excel — нужен интернет', no_cols: 'Не нашёл колонки «дата», «категория», «сумма»',
+    no_expenses_file: 'В файле не нашлось расходов', read_fail: 'Не удалось прочитать файл',
+    imp_found: 'Найдено расходов: <b>{n}</b>', imp_new: ', из них новых: <b>{n}</b> (остальные уже есть)',
+    imp_period: 'Период: {a} – {b}. Валюты: {c}.', imp_cats: 'Категории:', imp_newcat: '(новая)',
+    imp_skipped: 'Пропущено доходов и переводов: {n}.', imp_bad: 'Не удалось разобрать строк: {n}.',
+    imported: 'Импортировано трат: {n}',
+    wipe1: 'Удалить все траты, категории и регулярные платежи? Это нельзя отменить.',
+    wipe2: 'Точно? Сначала лучше сохранить резервную копию.', sugg_none: 'В истории не нашлось повторяющихся трат',
+    sugg_times: '{n}× · последний раз {d}',
+    sugg_added: ['Добавлен {n} регулярный платёж', 'Добавлено {n} регулярных платежа', 'Добавлено {n} регулярных платежей'],
+    cat_groceries: 'Продукты', cat_cafe: 'Кафе и рестораны', cat_coffee: 'Кофе', cat_delivery: 'Доставка',
+    cat_transport: 'Транспорт', cat_rent: 'Аренда и коммуналка', cat_home: 'Дом', cat_subscriptions: 'Подписки',
+    cat_health: 'Здоровье', cat_leisure: 'Развлечения', cat_clothes: 'Одежда', cat_english: 'Английский', cat_sport: 'Спорт',
+    cat_cigarettes: 'Сиги', cat_gifts: 'Подарки', cat_travel: 'Путешествия', cat_other: 'Другое', cat_shopping: 'Покупки',
+  },
+};
+const LANGS = [['en', 'English'], ['ru', 'Русский']];
+const lang = () => (T[S.settings.lang] ? S.settings.lang : 'en');
+function t(key, vars = {}) {
+  let s = T[lang()][key] ?? T.en[key] ?? key;
+  if (Array.isArray(s)) s = s[0];
+  return s.replace(/\{(\w+)\}/g, (_, k) => vars[k] ?? '');
+}
+// Множественное число: en — [one, other], ru — [one, few, many].
+function tn(key, n, vars = {}) {
+  const forms = T[lang()][key] ?? T.en[key];
+  const cat = new Intl.PluralRules(lang()).select(n);
+  const idx = lang() === 'ru' ? { one: 0, few: 1, many: 2, other: 1 }[cat] : (cat === 'one' ? 0 : 1);
+  return forms[Math.min(idx, forms.length - 1)].replace(/\{(\w+)\}/g, (_, k) => (k === 'n' ? n : vars[k] ?? ''));
+}
+const numLoc = () => (lang() === 'ru' ? 'ru-RU' : 'en-US');
+const dateLoc = () => (lang() === 'ru' ? 'ru-RU' : 'en-GB');
 
 /* ============================== IndexedDB ============================== */
 
@@ -45,7 +197,7 @@ function openDB() {
       d.createObjectStore('rec', { keyPath: 'id' });
       d.createObjectStore('kv');
     };
-    r.onsuccess = () => resolve(r.result);
+    r.onsuccess = () => { r.result.onversionchange = () => r.result.close(); resolve(r.result); };
     r.onerror = () => reject(r.error);
   });
 }
@@ -58,11 +210,11 @@ const kvGet = (k) => req(store('kv').get(k));
 const kvSet = (k, v) => req(store('kv', 'readwrite').put(v, k));
 function dbPutMany(s, items) {
   return new Promise((res, rej) => {
-    const t = db.transaction(s, 'readwrite');
-    const os = t.objectStore(s);
+    const tr = db.transaction(s, 'readwrite');
+    const os = tr.objectStore(s);
     items.forEach((i) => os.put(i));
-    t.oncomplete = () => res();
-    t.onerror = () => rej(t.error);
+    tr.oncomplete = () => res();
+    tr.onerror = () => rej(tr.error);
   });
 }
 function dbClear(s) { return req(store(s, 'readwrite').clear()); }
@@ -79,6 +231,9 @@ const S = {
   txLimit: 60,
 };
 const catById = (id) => S.cats.find((c) => c.id === id);
+const catName = (c) => (c ? c.name || t(`cat_${c.key}`) : t('no_category'));
+// у регулярной траты без своего названия показываем название категории (и оно переводится)
+const recName = (r) => r.name || catName(catById(r.categoryId));
 const uid = () => (crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2));
 async function saveSettings() { await kvSet('settings', S.settings); }
 
@@ -93,11 +248,16 @@ function daysInMonth(y, m) { return new Date(y, m + 1, 0).getDate(); }
 function addMonths(s, n, keepDay) {
   const d = parse(s);
   const day = keepDay || d.getDate();
-  const t = new Date(d.getFullYear(), d.getMonth() + n, 1);
-  t.setDate(Math.min(day, daysInMonth(t.getFullYear(), t.getMonth())));
-  return ymd(t);
+  const r = new Date(d.getFullYear(), d.getMonth() + n, 1);
+  r.setDate(Math.min(day, daysInMonth(r.getFullYear(), r.getMonth())));
+  return ymd(r);
 }
 function diffDays(a, b) { return Math.round((parse(b) - parse(a)) / 86400000); }
+const cap = (s) => s.charAt(0).toUpperCase() + s.slice(1);
+const fmtD = (opts) => new Intl.DateTimeFormat(dateLoc(), opts);
+function monthName(s, style = 'long') { return cap(fmtD({ month: style }).format(parse(s)).replace('.', '')); }
+function short(s, withYear) { return fmtD({ day: 'numeric', month: 'short', ...(withYear ? { year: 'numeric' } : {}) }).format(parse(s)).replace(' г.', ''); }
+function longDay(s) { return fmtD({ weekday: 'short', day: 'numeric', month: 'long' }).format(parse(s)); }
 
 function rangeOf(period, anchor) {
   const d = parse(anchor);
@@ -106,9 +266,7 @@ function rangeOf(period, anchor) {
     const start = addDays(anchor, -((d.getDay() + 6) % 7));
     return [start, addDays(start, 6)];
   }
-  if (period === 'month') {
-    return [ymd(new Date(d.getFullYear(), d.getMonth(), 1)), ymd(new Date(d.getFullYear(), d.getMonth() + 1, 0))];
-  }
+  if (period === 'month') return [ymd(new Date(d.getFullYear(), d.getMonth(), 1)), ymd(new Date(d.getFullYear(), d.getMonth() + 1, 0))];
   if (period === 'year') return [`${d.getFullYear()}-01-01`, `${d.getFullYear()}-12-31`];
   return [S.from, S.to];
 }
@@ -120,9 +278,9 @@ function prevRange() {
   }
   const [pa, pb] = rangeOf(S.period, shiftAnchor(S.anchor, S.period, -1));
   // Текущий период ещё идёт — сравниваем с тем же числом дней прошлого периода, иначе сравнение нечестное.
-  const [a, b] = currentRange(), t = todayStr();
-  if (t >= a && t < b && S.period !== 'day') {
-    const end = addDays(pa, diffDays(a, t));
+  const [a, b] = currentRange(), td = todayStr();
+  if (td >= a && td < b && S.period !== 'day') {
+    const end = addDays(pa, diffDays(a, td));
     return [pa, end < pb ? end : pb, true];
   }
   return [pa, pb];
@@ -134,24 +292,18 @@ function shiftAnchor(a, p, dir) {
   if (p === 'year') return addMonths(a, 12 * dir, 1);
   return a;
 }
-const fmtD = (opts) => new Intl.DateTimeFormat('ru-RU', opts);
-const MONTHS = ['Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь', 'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь'];
-function short(s, withYear) { return fmtD({ day: 'numeric', month: 'short', ...(withYear ? { year: 'numeric' } : {}) }).format(parse(s)).replace(' г.', ''); }
 function periodLabel() {
   const [a, b] = currentRange();
-  const t = todayStr();
-  const thisYear = a.slice(0, 4) === t.slice(0, 4) && b.slice(0, 4) === t.slice(0, 4);
+  const td = todayStr();
+  const thisYear = a.slice(0, 4) === td.slice(0, 4) && b.slice(0, 4) === td.slice(0, 4);
   if (S.period === 'day') {
-    if (a === t) return 'Сегодня';
-    if (a === addDays(t, -1)) return 'Вчера';
+    if (a === td) return t('today');
+    if (a === addDays(td, -1)) return t('yesterday');
     return fmtD({ weekday: 'short', day: 'numeric', month: 'long', ...(thisYear ? {} : { year: 'numeric' }) }).format(parse(a));
   }
-  if (S.period === 'month') { const d = parse(a); return `${MONTHS[d.getMonth()]}${thisYear ? '' : ' ' + d.getFullYear()}`; }
+  if (S.period === 'month') return `${monthName(a)}${thisYear ? '' : ' ' + a.slice(0, 4)}`;
   if (S.period === 'year') return a.slice(0, 4);
   return `${short(a, !thisYear)} – ${short(b, !thisYear)}`;
-}
-function prevName() {
-  return { day: 'вчера', week: 'прошлой неделе', month: 'прошлому месяцу', year: 'прошлому году', custom: 'предыдущему периоду' }[S.period];
 }
 
 /* ============================== Деньги ============================== */
@@ -162,23 +314,25 @@ function conv(amount, from, to, rates) {
   if (from === to) return amount;
   return (amount / rateOf(from, rates)) * rateOf(to, rates);
 }
-function txIn(t, to) { return conv(t.amount, t.currency, to, t.fx); }
+function txIn(tx, to) { return conv(tx.amount, tx.currency, to, tx.fx); }
 function fmt(v, cur, opts = {}) {
-  const c = CUR[cur];
-  const dec = opts.dec ?? (Math.abs(v) >= 1000 ? 0 : c.dec);
-  const s = new Intl.NumberFormat('ru-RU', { maximumFractionDigits: dec, minimumFractionDigits: 0 }).format(v);
-  return `${s} ${c.sym}`;
+  const dec = opts.dec ?? (Math.abs(v) >= 1000 ? 0 : CUR[cur].dec);
+  const s = new Intl.NumberFormat(numLoc(), { maximumFractionDigits: dec, minimumFractionDigits: 0 }).format(v);
+  return `${s} ${CUR[cur].sym}`;
 }
 function fmtShort(v, cur) {
   const a = Math.abs(v);
-  const n = (x, d) => new Intl.NumberFormat('ru-RU', { maximumFractionDigits: d }).format(x);
-  if (a >= 1e9) return `${n(v / 1e9, 1)} млрд ${CUR[cur].sym}`;
-  if (a >= 1e6) return `${n(v / 1e6, a >= 1e8 ? 0 : 1)} млн ${CUR[cur].sym}`;
-  if (a >= 1e5) return `${n(v / 1e3, 0)} тыс ${CUR[cur].sym}`;
+  const n = (x, d) => new Intl.NumberFormat(numLoc(), { maximumFractionDigits: d }).format(x);
+  const ru = lang() === 'ru';
+  const sym = CUR[cur].sym;
+  if (a >= 1e9) return ru ? `${n(v / 1e9, 1)} млрд ${sym}` : `${n(v / 1e9, 1)}B ${sym}`;
+  if (a >= 1e6) return ru ? `${n(v / 1e6, a >= 1e8 ? 0 : 1)} млн ${sym}` : `${n(v / 1e6, a >= 1e8 ? 0 : 1)}M ${sym}`;
+  if (a >= 1e5) return ru ? `${n(v / 1e3, 0)} тыс ${sym}` : `${n(v / 1e3, 0)}K ${sym}`;
   return fmt(v, cur);
 }
 function parseAmount(str) {
-  if (!str) return NaN;
+  if (str === '' || str == null) return NaN;
+  if (typeof str === 'number') return str;
   let s = String(str).replace(/\s/g, '').replace(/,/g, '.').toLowerCase();
   let mult = 1;
   if (/[kк]$/.test(s)) { mult = 1e3; s = s.slice(0, -1); }
@@ -189,6 +343,7 @@ function parseAmount(str) {
   return Number.isFinite(v) ? v : NaN;
 }
 function roundCur(v, cur) { const f = 10 ** CUR[cur].dec; return Math.round(v * f) / f; }
+const round = (v, d) => Math.round(v * 10 ** d) / 10 ** d;
 function freshRates() {
   if (S.settings.ratesSource !== 'api' || !S.settings.ratesDate) return null;
   if (diffDays(S.settings.ratesDate, todayStr()) > 3) return null;
@@ -208,11 +363,11 @@ async function refreshRates(manual) {
       S.settings.ratesSource = 'api';
       await saveSettings();
       renderAll();
-      if (manual) toast('Курс обновлён');
+      if (manual) toast(t('rates_updated'));
       return true;
     } catch (_) { /* пробуем следующий источник */ }
   }
-  if (manual) toast('Не удалось обновить курс — нет интернета?');
+  if (manual) toast(t('rates_failed'));
   return false;
 }
 
@@ -225,15 +380,15 @@ const color = (slot) => (slot == null ? 'var(--other)' : `var(--s${slot % SLOTS}
 
 let toastTimer;
 function toast(text, actionLabel, action) {
-  const t = $('#toast');
+  const box = $('#toast');
   $('#toast-text').textContent = text;
   const b = $('#toast-action');
   b.textContent = actionLabel || '';
   b.classList.toggle('hidden', !actionLabel);
-  b.onclick = () => { t.classList.add('hidden'); action && action(); };
-  t.classList.remove('hidden');
+  b.onclick = () => { box.classList.add('hidden'); action && action(); };
+  box.classList.remove('hidden');
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => t.classList.add('hidden'), actionLabel ? 5000 : 2200);
+  toastTimer = setTimeout(() => box.classList.add('hidden'), actionLabel ? 5000 : 2200);
 }
 function segment(container, items, value, onChange) {
   container.innerHTML = '';
@@ -259,16 +414,24 @@ function closeSheet() {
   $('#backdrop').classList.add('hidden');
 }
 
+function applyI18n() {
+  document.documentElement.lang = lang();
+  document.title = t('app_name');
+  document.querySelectorAll('[data-i18n]').forEach((e) => { e.textContent = t(e.dataset.i18n); });
+  document.querySelectorAll('[data-i18n-ph]').forEach((e) => { e.placeholder = t(e.dataset.i18nPh); });
+  document.querySelectorAll('[data-i18n-aria]').forEach((e) => { e.setAttribute('aria-label', t(e.dataset.i18nAria)); });
+}
+
 /* ============================== Обзор ============================== */
 
-function txInRange([a, b]) { return S.tx.filter((t) => t.date >= a && t.date <= b && !(S.settings.hideRec && t.recId)); }
+function txInRange([a, b]) { return S.tx.filter((x) => x.date >= a && x.date <= b && !(S.settings.hideRec && x.recId)); }
 function sumBy(list, cur) {
   const m = new Map();
   let total = 0;
-  for (const t of list) {
-    const v = txIn(t, cur);
+  for (const x of list) {
+    const v = txIn(x, cur);
     total += v;
-    m.set(t.categoryId, (m.get(t.categoryId) || 0) + v);
+    m.set(x.categoryId, (m.get(x.categoryId) || 0) + v);
   }
   return { total, byCat: m };
 }
@@ -282,6 +445,8 @@ function renderMain() {
   if (S.period === 'custom') { $('#range-from').value = S.from; $('#range-to').value = S.to; }
   $('#next-period').style.visibility = S.period === 'custom' ? 'hidden' : '';
   $('#prev-period').style.visibility = S.period === 'custom' ? 'hidden' : '';
+
+  renderDue();
 
   const range = currentRange();
   const list = txInRange(range);
@@ -299,14 +464,14 @@ function renderMain() {
   if (prev.total > 0 && total > 0) {
     const pct = ((total - prev.total) / prev.total) * 100;
     const cls = pct > 0.5 ? 'up' : pct < -0.5 ? 'down' : '';
-    d.innerHTML = `<span class="${cls}">${pct > 0 ? '▲ +' : pct < 0 ? '▼ ' : ''}${Math.round(pct)}%</span> к ${prevName()}${pr[2] ? ` (${esc(short(pr[0]))} – ${esc(short(pr[1]))})` : ''} · было ${esc(fmt(prev.total, cur))}`;
-  } else if (prev.total > 0) d.textContent = `В предыдущем периоде: ${fmt(prev.total, cur)}`;
+    d.innerHTML = `<span class="${cls}">${pct > 0 ? '▲ +' : pct < 0 ? '▼ ' : ''}${Math.round(pct)}%</span> ${esc(t('vs_' + S.period))}${pr[2] ? ` (${esc(short(pr[0]))} – ${esc(short(pr[1]))})` : ''} · ${esc(t('was', { v: fmt(prev.total, cur) }))}`;
+  } else if (prev.total > 0) d.textContent = t('prev_total', { v: fmt(prev.total, cur) });
   else d.textContent = '';
 
   // список категорий
   const ul = $('#cat-list');
   ul.innerHTML = '';
-  if (!cats.length) ul.append(el('li', 'empty', 'Трат за этот период нет'));
+  if (!cats.length) ul.append(el('li', 'empty', esc(t('no_expenses_period'))));
   const max = cats[0]?.v || 1;
   for (const { id, v, cat } of cats) {
     const p = prev.byCat.get(id) || 0;
@@ -314,10 +479,10 @@ function renderMain() {
     if (p > 0) {
       const pct = Math.round(((v - p) / p) * 100);
       if (pct !== 0) delta = `<span class="${pct > 0 ? 'up' : 'down'}">${pct > 0 ? '+' : ''}${pct}%</span> · `;
-    } else if (prev.total > 0) delta = '<span>новое</span> · ';
+    } else if (prev.total > 0) delta = `<span>${esc(t('new_cat'))}</span> · `;
     const li = el('li', S.catFilter === id ? 'sel' : '', `
       <span class="emo">${esc(cat?.emoji || '❓')}</span>
-      <span class="name">${esc(cat?.name || 'Без категории')}</span>
+      <span class="name">${esc(catName(cat))}</span>
       <span class="amt">${esc(fmt(v, cur))}</span>
       <span class="meter"><i style="width:${(v / max) * 100}%;background:${color(cat?.color)}"></i></span>
       <span class="meta">${delta}${total ? Math.round((v / total) * 100) : 0}%</span>`);
@@ -326,8 +491,8 @@ function renderMain() {
   }
   $('#clear-filter').classList.toggle('hidden', !S.catFilter);
   const rt = $('#rec-toggle');
-  rt.classList.toggle('hidden', !S.tx.some((t) => t.recId));
-  rt.textContent = S.settings.hideRec ? '🔁 Регулярные траты скрыты — показать' : '🔁 Скрыть регулярные траты';
+  rt.classList.toggle('hidden', !S.tx.some((x) => x.recId));
+  rt.textContent = S.settings.hideRec ? t('rec_show') : t('rec_hide');
 
   renderBars(range, list, cur);
   renderTxList(list, cur);
@@ -347,14 +512,14 @@ function renderDonut(cats, total, cur) {
   const R1 = 98, R0 = 72, C = 100;
   if (!total) {
     svg.innerHTML = `<circle cx="100" cy="100" r="85" fill="none" stroke="var(--surface-2)" stroke-width="26"/>`;
-    center.innerHTML = `<div class="lbl">Потрачено</div><div class="val">${esc(fmt(0, cur))}</div>`;
+    center.innerHTML = `<div class="lbl">${esc(t('spent'))}</div><div class="val">${esc(fmt(0, cur))}</div>`;
     return;
   }
-  // топ-7 категорий, остальное сворачиваем в «Другое»
-  let segs = cats.slice(0, CHART_MAX).map((c) => ({ ...c }));
+  // топ-7 категорий, остальное сворачиваем в один серый сегмент
+  const segs = cats.slice(0, CHART_MAX).map((c) => ({ ...c }));
   if (cats.length > CHART_MAX) {
     const rest = cats.slice(CHART_MAX);
-    segs.push({ id: '__other', v: rest.reduce((s, c) => s + c.v, 0), cat: { name: `Ещё ${rest.length} кат.`, color: null }, ids: rest.map((c) => c.id) });
+    segs.push({ id: '__other', v: rest.reduce((s, c) => s + c.v, 0), cat: { name: t('more_cats', { n: rest.length }), color: null }, ids: rest.map((c) => c.id) });
   }
   const gap = segs.length > 1 ? 2 / R1 : 0; // 2px зазор между сегментами
   let a = 0;
@@ -370,11 +535,11 @@ function renderDonut(cats, total, cur) {
     if (isSel) { path.classList.add('sel'); selSeg = s; }
     path.addEventListener('click', (e) => {
       e.stopPropagation();
-      if (s.id === '__other') { document.querySelector('#cat-list li:nth-child(' + (CHART_MAX + 1) + ')')?.scrollIntoView({ behavior: 'smooth', block: 'center' }); return; }
+      if (s.id === '__other') { document.querySelector(`#cat-list li:nth-child(${CHART_MAX + 1})`)?.scrollIntoView({ behavior: 'smooth', block: 'center' }); return; }
       S.catFilter = S.catFilter === s.id ? null : s.id; S.txLimit = 60; renderMain();
     });
     const title = document.createElementNS('http://www.w3.org/2000/svg', 'title');
-    title.textContent = `${s.cat?.name}: ${fmt(s.v, cur)}`;
+    title.textContent = `${catName(s.cat)}: ${fmt(s.v, cur)}`;
     path.append(title);
     svg.append(path);
     a += sweep;
@@ -383,10 +548,10 @@ function renderDonut(cats, total, cur) {
   if (selSeg) {
     const v = selSeg.id === sel ? selSeg.v : cats.find((c) => c.id === sel).v;
     const c = catById(sel);
-    center.innerHTML = `<div class="lbl">${esc((c?.emoji || '') + ' ' + (c?.name || ''))}</div><div class="val">${esc(fmtShort(v, cur))}</div><div class="sub">${Math.round((v / total) * 100)}% от ${esc(fmtShort(total, cur))}</div>`;
+    center.innerHTML = `<div class="lbl">${esc((c?.emoji || '') + ' ' + catName(c))}</div><div class="val">${esc(fmtShort(v, cur))}</div><div class="sub">${esc(t('of_total', { p: Math.round((v / total) * 100), t: fmtShort(total, cur) }))}</div>`;
   } else {
     const other = cur === 'VND' ? 'RUB' : 'VND';
-    center.innerHTML = `<div class="lbl">Потрачено</div><div class="val">${esc(fmtShort(total, cur))}</div><div class="sub">≈ ${esc(fmtShort(conv(total, cur, other), other))}</div>`;
+    center.innerHTML = `<div class="lbl">${esc(t('spent'))}</div><div class="val">${esc(fmtShort(total, cur))}</div><div class="sub">≈ ${esc(fmtShort(conv(total, cur, other), other))}</div>`;
   }
 }
 
@@ -398,28 +563,28 @@ function renderBars([a, b], list, cur) {
   const buckets = [];
   if (byMonth) {
     let d = a.slice(0, 7) + '-01';
-    while (d <= b) { buckets.push({ key: d.slice(0, 7), label: MONTHS[parse(d).getMonth()].slice(0, 3), v: 0, full: `${MONTHS[parse(d).getMonth()]} ${d.slice(0, 4)}` }); d = addMonths(d, 1, 1); }
+    while (d <= b) { buckets.push({ key: d.slice(0, 7), label: monthName(d, 'short').slice(0, 3), v: 0, full: `${monthName(d)} ${d.slice(0, 4)}` }); d = addMonths(d, 1, 1); }
   } else {
-    for (let d = a; d <= b; d = addDays(d, 1)) buckets.push({ key: d, label: String(parse(d).getDate()), v: 0, full: fmtD({ weekday: 'short', day: 'numeric', month: 'long' }).format(parse(d)) });
+    for (let d = a; d <= b; d = addDays(d, 1)) buckets.push({ key: d, label: String(parse(d).getDate()), v: 0, full: longDay(d) });
   }
   const idx = new Map(buckets.map((x, i) => [x.key, i]));
-  const src = S.catFilter ? list.filter((t) => t.categoryId === S.catFilter) : list;
-  for (const t of src) { const i = idx.get(byMonth ? t.date.slice(0, 7) : t.date); if (i != null) buckets[i].v += txIn(t, cur); }
+  const src = S.catFilter ? list.filter((x) => x.categoryId === S.catFilter) : list;
+  for (const x of src) { const i = idx.get(byMonth ? x.date.slice(0, 7) : x.date); if (i != null) buckets[i].v += txIn(x, cur); }
 
-  $('#bars-title').textContent = byMonth ? 'По месяцам' : 'По дням';
-  const t = todayStr();
-  const elapsed = buckets.filter((x) => (byMonth ? x.key <= t.slice(0, 7) : x.key <= t)).length || buckets.length;
+  $('#bars-title').textContent = byMonth ? t('by_months') : t('by_days');
+  const td = todayStr();
+  const elapsed = buckets.filter((x) => (byMonth ? x.key <= td.slice(0, 7) : x.key <= td)).length || buckets.length;
   const sum = buckets.reduce((s, x) => s + x.v, 0);
   const avg = sum / elapsed;
   const info = $('#bars-info');
-  const defaultInfo = sum ? `в среднем ${fmtShort(avg, cur)} ${byMonth ? 'в мес.' : 'в день'}` : '';
+  const defaultInfo = sum ? t(byMonth ? 'avg_month' : 'avg_day', { v: fmtShort(avg, cur) }) : '';
   info.textContent = defaultInfo;
 
   const W = Math.max(260, Math.round($('#bars').clientWidth || 340)), H = 150, top = 8, bottom = 18, n = buckets.length;
   const max = Math.max(...buckets.map((x) => x.v), 1);
   const slot = W / n, bw = Math.max(2, slot - 2);
   const y = (v) => top + (H - top - bottom) * (1 - v / max);
-  let svg = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Траты по ${byMonth ? 'месяцам' : 'дням'}">`;
+  let svg = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(byMonth ? t('by_months') : t('by_days'))}">`;
   svg += `<line class="grid" x1="0" x2="${W}" y1="${y(max)}" y2="${y(max)}"/>`;
   buckets.forEach((x, i) => {
     const h = H - bottom - y(x.v);
@@ -431,7 +596,7 @@ function renderBars([a, b], list, cur) {
     }
     svg += `<rect class="hit" x="${i * slot}" y="0" width="${slot}" height="${H}" data-i="${i}"/>`;
     const every = n > 20 ? 5 : n > 12 ? 2 : 1;
-    if (i % every === 0 || n <= 12) svg += `<text x="${bx + bw / 2}" y="${H - 4}" text-anchor="middle">${x.label}</text>`;
+    if (i % every === 0 || n <= 12) svg += `<text x="${bx + bw / 2}" y="${H - 4}" text-anchor="middle">${esc(x.label)}</text>`;
   });
   if (sum && avg < max) svg += `<line class="avg" x1="0" x2="${W}" y1="${y(avg)}" y2="${y(avg)}"/>`;
   svg += `<line class="axis" x1="0" x2="${W}" y1="${H - bottom}" y2="${H - bottom}"/></svg>`;
@@ -439,47 +604,51 @@ function renderBars([a, b], list, cur) {
   box.innerHTML = svg;
   let active = null;
   box.querySelectorAll('.hit').forEach((h) => {
-    const show = () => {
+    h.addEventListener('click', () => {
       const i = +h.dataset.i;
       if (active === i) { active = null; info.textContent = defaultInfo; box.querySelectorAll('.b-path').forEach((p) => p.setAttribute('fill', 'var(--bar)')); return; }
       active = i;
       info.textContent = `${buckets[i].full}: ${fmt(buckets[i].v, cur)}`;
       box.querySelectorAll('.b-path').forEach((p) => p.setAttribute('fill', +p.dataset.i === i ? 'var(--bar)' : 'var(--bar-dim)'));
-    };
-    h.addEventListener('click', show);
+    });
   });
 }
 
+function dayLabel(d) {
+  if (d === todayStr()) return t('today');
+  if (d === addDays(todayStr(), -1)) return t('yesterday');
+  return longDay(d);
+}
 function renderTxList(list, cur) {
   const box = $('#tx-list');
   box.innerHTML = '';
-  let items = S.catFilter ? list.filter((t) => t.categoryId === S.catFilter) : list;
+  let items = S.catFilter ? list.filter((x) => x.categoryId === S.catFilter) : list;
   items = [...items].sort((a, b) => (b.date + (b.createdAt || '')).localeCompare(a.date + (a.createdAt || '')));
-  const c = S.catFilter && catById(S.catFilter);
-  $('#tx-title').textContent = c ? `${c.emoji} ${c.name}` : 'Операции';
-  if (!items.length) { box.append(el('div', 'empty', 'Пока пусто. Нажмите «+», чтобы добавить трату.')); return; }
+  const fc = S.catFilter && catById(S.catFilter);
+  $('#tx-title').textContent = fc ? `${fc.emoji} ${catName(fc)}` : t('transactions');
+  if (!items.length) { box.append(el('div', 'empty', esc(t('empty_tx')))); return; }
   const shown = items.slice(0, S.txLimit);
   let group, groupDate;
   const dayTotals = new Map();
-  for (const t of items) dayTotals.set(t.date, (dayTotals.get(t.date) || 0) + txIn(t, cur));
-  for (const t of shown) {
-    if (t.date !== groupDate) {
-      groupDate = t.date;
+  for (const x of items) dayTotals.set(x.date, (dayTotals.get(x.date) || 0) + txIn(x, cur));
+  for (const x of shown) {
+    if (x.date !== groupDate) {
+      groupDate = x.date;
       group = el('div', 'day-group');
-      const label = t.date === todayStr() ? 'Сегодня' : t.date === addDays(todayStr(), -1) ? 'Вчера' : fmtD({ weekday: 'short', day: 'numeric', month: 'long' }).format(parse(t.date));
-      group.append(el('div', 'day-head', `<span>${esc(label)}</span><span class="num">${esc(fmt(dayTotals.get(t.date), cur))}</span>`));
+      group.append(el('div', 'day-head', `<span>${esc(dayLabel(x.date))}</span><span class="num">${esc(fmt(dayTotals.get(x.date), cur))}</span>`));
       box.append(group);
     }
-    const cat = catById(t.categoryId);
+    const cat = catById(x.categoryId);
+    const sub = [x.note ? catName(cat) : '', x.recId ? t('recurring_tag') : ''].filter(Boolean).join(' · ');
     const row = el('button', 'tx-row', `
       <span class="emo">${esc(cat?.emoji || '❓')}</span>
-      <span><div class="t1">${esc(t.note || cat?.name || 'Без категории')}</div><div class="t2">${esc(t.note ? cat?.name || '' : '')}${t.recId ? (t.note ? ' · ' : '') + '🔁 регулярная' : ''}</div></span>
-      <span><div class="a1">${esc(fmt(t.amount, t.currency))}</div>${t.currency !== cur ? `<div class="a2">≈ ${esc(fmt(txIn(t, cur), cur))}</div>` : ''}</span>`);
-    row.onclick = () => openTxSheet(t);
+      <span><div class="t1">${esc(x.note || catName(cat))}</div><div class="t2">${esc(sub)}</div></span>
+      <span><div class="a1">${esc(fmt(x.amount, x.currency))}</div>${x.currency !== cur ? `<div class="a2">≈ ${esc(fmt(txIn(x, cur), cur))}</div>` : ''}</span>`);
+    row.onclick = () => openTxSheet(x);
     group.append(row);
   }
   if (items.length > shown.length) {
-    const more = el('button', 'more-btn', `Показать ещё (${items.length - shown.length})`);
+    const more = el('button', 'more-btn', esc(t('show_more', { n: items.length - shown.length })));
     more.onclick = () => { S.txLimit += 100; renderMain(); };
     box.append(more);
   }
@@ -493,39 +662,43 @@ let txState = {};
 function catsByUsage() {
   const since = addDays(todayStr(), -60);
   const cnt = new Map();
-  for (const t of S.tx) if (t.date >= since) cnt.set(t.categoryId, (cnt.get(t.categoryId) || 0) + 1);
+  for (const x of S.tx) if (x.date >= since) cnt.set(x.categoryId, (cnt.get(x.categoryId) || 0) + 1);
   return S.cats.filter((c) => !c.archived).sort((a, b) => (cnt.get(b.id) || 0) - (cnt.get(a.id) || 0) || a.order - b.order);
 }
 
-function openTxSheet(t) {
-  txEdit = t || null;
+// prefill — для оплаты регулярной траты с меняющейся суммой: {amount, currency, categoryId, note, date, recId}
+function openTxSheet(x, prefill) {
+  txEdit = x || null;
+  const p = prefill || {};
   txState = {
-    currency: t?.currency || S.settings.inputCur,
-    date: t?.date || (S.period === 'day' && S.anchor <= todayStr() ? S.anchor : todayStr()),
-    categoryId: t?.categoryId || null,
+    currency: x?.currency || p.currency || S.settings.inputCur,
+    date: x?.date || p.date || (S.period === 'day' && S.anchor <= todayStr() ? S.anchor : todayStr()),
+    categoryId: x?.categoryId || p.categoryId || null,
+    recId: p.recId || null,
   };
-  $('#tx-amount').value = t ? String(t.amount) : '';
-  $('#tx-note').value = t?.note || '';
+  $('#tx-amount').value = x ? String(x.amount) : p.amount ? String(p.amount) : '';
+  $('#tx-note').value = x?.note || p.note || '';
   segment($('#tx-cur'), curItems(), txState.currency, (v) => { txState.currency = v; updateAmountHint(); });
   updateTxDate();
-  $('#tx-hint').classList.toggle('hidden', !!t);
-  $('#tx-edit-actions').classList.toggle('hidden', !t);
+  $('#tx-hint').classList.toggle('hidden', !!x);
+  $('#tx-edit-actions').classList.toggle('hidden', !x);
   renderTxCats();
   updateAmountHint();
   openSheet('#sheet-tx');
-  if (!t) setTimeout(() => $('#tx-amount').focus(), 50);
+  if (!x) setTimeout(() => { const a = $('#tx-amount'); a.focus(); a.select(); }, 50);
 }
 function renderTxCats() {
   const grid = $('#tx-cats');
   grid.innerHTML = '';
   let cats = catsByUsage();
-  if (txEdit && !cats.find((c) => c.id === txEdit.categoryId)) { const c = catById(txEdit.categoryId); if (c) cats = [c, ...cats]; }
+  const pinned = catById(txState.categoryId);
+  if (pinned) cats = [pinned, ...cats.filter((c) => c.id !== pinned.id)];
   for (const c of cats) {
-    const b = el('button', c.id === txState.categoryId && txEdit ? 'on' : '', `<span class="e">${esc(c.emoji)}</span><span class="n">${esc(c.name)}</span>`);
+    const b = el('button', c.id === txState.categoryId ? 'on' : '', `<span class="e">${esc(c.emoji)}</span><span class="n">${esc(catName(c))}</span>`);
     b.type = 'button';
     b.onclick = () => {
       txState.categoryId = c.id;
-      if (txEdit) { grid.querySelectorAll('button').forEach((x) => x.classList.remove('on')); b.classList.add('on'); }
+      if (txEdit) { grid.querySelectorAll('button').forEach((y) => y.classList.remove('on')); b.classList.add('on'); }
       else saveTx();
     };
     grid.append(b);
@@ -533,48 +706,56 @@ function renderTxCats() {
 }
 function updateTxDate() {
   $('#tx-date').value = txState.date;
-  const t = todayStr();
-  [...$('#tx-date-chips').children].forEach((b) => b.classList.toggle('on', addDays(t, +b.dataset.d) === txState.date));
+  const td = todayStr();
+  [...$('#tx-date-chips').children].forEach((b) => b.classList.toggle('on', addDays(td, +b.dataset.d) === txState.date));
 }
 function updateAmountHint() {
   const v = parseAmount($('#tx-amount').value);
   const h = $('#tx-amount-hint');
   if (!(v > 0)) { h.textContent = ''; return; }
   const cur = txState.currency;
-  const others = CUR_ORDER.filter((c) => c !== cur && c !== 'USD').concat(cur === 'USD' ? [] : ['USD']).filter((c) => c !== cur);
+  const others = CUR_ORDER.filter((c) => c !== cur);
   h.textContent = `${fmt(v, cur)} ≈ ` + others.map((o) => fmt(conv(v, cur, o), o)).join(' ≈ ');
 }
 async function saveTx() {
   const amount = parseAmount($('#tx-amount').value);
   if (!(amount > 0)) { const a = $('#tx-amount'); a.classList.remove('shake'); void a.offsetWidth; a.classList.add('shake'); a.focus(); return; }
-  if (!txState.categoryId) { toast('Выберите категорию'); return; }
+  if (!txState.categoryId) { toast(t('choose_cat')); return; }
   const isNew = !txEdit;
-  const t = txEdit ? { ...txEdit } : { id: uid(), createdAt: new Date().toISOString() };
-  const changedMoney = isNew || t.amount !== amount || t.currency !== txState.currency;
-  Object.assign(t, {
+  const x = txEdit ? { ...txEdit } : { id: uid(), createdAt: new Date().toISOString() };
+  const changedMoney = isNew || x.amount !== amount || x.currency !== txState.currency;
+  Object.assign(x, {
     amount: roundCur(amount, txState.currency),
     currency: txState.currency,
     date: txState.date,
     categoryId: txState.categoryId,
     note: $('#tx-note').value.trim(),
   });
-  if (changedMoney) { const fx = freshRates(); if (fx) t.fx = fx; else delete t.fx; }
-  await dbPut('tx', t);
-  const i = S.tx.findIndex((x) => x.id === t.id);
-  if (i >= 0) S.tx[i] = t; else S.tx.push(t);
-  if (S.settings.inputCur !== t.currency) { S.settings.inputCur = t.currency; saveSettings(); }
+  if (changedMoney) { const fx = freshRates(); if (fx) x.fx = fx; else delete x.fx; }
+  if (isNew && txState.recId) x.recId = txState.recId;
+  await dbPut('tx', x);
+  const i = S.tx.findIndex((y) => y.id === x.id);
+  if (i >= 0) S.tx[i] = x; else S.tx.push(x);
+  // оплата регулярной траты с меняющейся суммой: запоминаем сумму и переносим на следующий срок
+  let paidRule = null;
+  if (isNew && txState.recId) {
+    const r = S.rec.find((y) => y.id === txState.recId);
+    if (r) { r.amount = x.amount; r.currency = x.currency; r.next = nextOccurrence(r, r.next); await dbPut('rec', r); paidRule = r; }
+  }
+  if (!txState.recId && S.settings.inputCur !== x.currency) { S.settings.inputCur = x.currency; saveSettings(); }
   closeSheet();
   renderAll();
-  const cat = catById(t.categoryId);
-  if (isNew) toast(`${cat.emoji} ${fmt(t.amount, t.currency)} — ${cat.name}`, 'Отменить', () => deleteTx(t, true));
-  else toast('Сохранено');
+  const cat = catById(x.categoryId);
+  if (isNew) toast(`${cat.emoji} ${fmt(x.amount, x.currency)} — ${catName(cat)}`, t('undo'), () => deleteTx(x, true, paidRule));
+  else toast(t('saved'));
 }
-async function deleteTx(t, silent) {
-  await dbDel('tx', t.id);
-  S.tx = S.tx.filter((x) => x.id !== t.id);
+async function deleteTx(x, silent, paidRule) {
+  await dbDel('tx', x.id);
+  S.tx = S.tx.filter((y) => y.id !== x.id);
+  if (paidRule) { paidRule.next = x.date; await dbPut('rec', paidRule); }  // отмена оплаты — напоминание возвращается
   closeSheet();
   renderAll();
-  if (!silent) toast('Трата удалена', 'Вернуть', async () => { await dbPut('tx', t); S.tx.push(t); renderAll(); });
+  if (!silent) toast(t('deleted'), t('restore_btn'), async () => { await dbPut('tx', x); S.tx.push(x); renderAll(); });
 }
 
 /* ============================== Категории ============================== */
@@ -584,12 +765,12 @@ function renderCatManage() {
   const ul = $('#cat-manage');
   ul.innerHTML = '';
   const counts = new Map();
-  for (const t of S.tx) counts.set(t.categoryId, (counts.get(t.categoryId) || 0) + 1);
+  for (const x of S.tx) counts.set(x.categoryId, (counts.get(x.categoryId) || 0) + 1);
   const sorted = [...S.cats].sort((a, b) => (a.archived - b.archived) || a.order - b.order);
   for (const c of sorted) {
     const li = el('li', c.archived ? 'archived' : '', `
       <span class="emo">${esc(c.emoji)}</span>
-      <span class="grow"><div class="t1">${esc(c.name)}</div><div class="t2">${counts.get(c.id) || 0} трат${c.archived ? ' · в архиве' : ''}</div></span>
+      <span class="grow"><div class="t1">${esc(catName(c))}</div><div class="t2">${esc(tn('expenses_n', counts.get(c.id) || 0))}${c.archived ? ' · ' + esc(t('archived')) : ''}</div></span>
       <span class="dot" style="background:${color(c.color)}"></span>`);
     li.onclick = () => openCatSheet(c);
     ul.append(li);
@@ -598,23 +779,23 @@ function renderCatManage() {
 function openCatSheet(c) {
   catEdit = c || null;
   catColor = c ? c.color : S.cats.length % SLOTS;
-  $('#cat-sheet-title').textContent = c ? 'Категория' : 'Новая категория';
+  $('#cat-sheet-title').textContent = c ? t('cat_title') : t('cat_new');
   $('#cat-emoji').value = c?.emoji || '🏷️';
-  $('#cat-name').value = c?.name || '';
+  $('#cat-name').value = c ? catName(c) : '';
   const sw = $('#cat-colors');
   sw.innerHTML = '';
   for (let i = 0; i < SLOTS; i++) {
     const b = el('button', i === catColor ? 'on' : '');
     b.type = 'button';
     b.style.background = color(i);
-    b.setAttribute('aria-label', `Цвет ${i + 1}`);
-    b.onclick = () => { catColor = i; [...sw.children].forEach((x) => x.classList.remove('on')); b.classList.add('on'); };
+    b.setAttribute('aria-label', `${i + 1}`);
+    b.onclick = () => { catColor = i; [...sw.children].forEach((y) => y.classList.remove('on')); b.classList.add('on'); };
     sw.append(b);
   }
-  const used = c && S.tx.some((t) => t.categoryId === c.id);
+  const used = c && (S.tx.some((x) => x.categoryId === c.id) || S.rec.some((r) => r.categoryId === c.id));
   $('#cat-archive').classList.toggle('hidden', !c);
-  $('#cat-archive').textContent = c?.archived ? 'Вернуть из архива' : 'В архив';
-  $('#cat-delete').classList.toggle('hidden', !c || used || S.rec.some((r) => r.categoryId === c?.id));
+  $('#cat-archive').textContent = c?.archived ? t('unarchive') : t('archive');
+  $('#cat-delete').classList.toggle('hidden', !c || used);
   openSheet('#sheet-cat');
   if (!c) setTimeout(() => $('#cat-name').focus(), 50);
 }
@@ -622,17 +803,20 @@ async function saveCat(archiveToggle) {
   const name = $('#cat-name').value.trim();
   if (!name) { $('#cat-name').focus(); return; }
   const c = catEdit ? { ...catEdit } : { id: uid(), order: Math.max(0, ...S.cats.map((x) => x.order)) + 1, archived: false };
-  Object.assign(c, { name, emoji: $('#cat-emoji').value.trim() || '🏷️', color: catColor });
+  // если у стандартной категории оставили стандартное название — оно продолжит переводиться
+  c.name = c.key && (name === T.en[`cat_${c.key}`] || name === T.ru[`cat_${c.key}`]) ? null : name;
+  c.emoji = $('#cat-emoji').value.trim() || '🏷️';
+  c.color = catColor;
   if (archiveToggle) c.archived = !c.archived;
   await dbPut('cats', c);
   const i = S.cats.findIndex((x) => x.id === c.id);
   if (i >= 0) S.cats[i] = c; else S.cats.push(c);
   closeSheet();
   renderAll();
-  if (archiveToggle) toast(c.archived ? 'Категория в архиве: старые траты сохранены' : 'Категория снова активна');
+  if (archiveToggle) toast(c.archived ? t('cat_archived') : t('cat_unarchived'));
 }
 async function deleteCat() {
-  if (!catEdit || !confirm(`Удалить категорию «${catEdit.name}»?`)) return;
+  if (!catEdit || !confirm(t('confirm_cat_delete', { n: catName(catEdit) }))) return;
   await dbDel('cats', catEdit.id);
   S.cats = S.cats.filter((c) => c.id !== catEdit.id);
   closeSheet();
@@ -647,20 +831,17 @@ function nextOccurrence(r, from) {
   if (r.unit === 'year') return addMonths(from, 12 * n, r.day);
   return addMonths(from, n, r.day);
 }
-// Создаёт траты для всех наступивших дат регулярных платежей.
+// Постоянные суммы: создаёт траты на все наступившие даты. Меняющиеся суммы — только напоминание (renderDue).
 async function runRecurring() {
   const today = todayStr();
   const created = [];
   for (const r of S.rec) {
-    if (!r.active) continue;
+    if (!r.active || r.variable) continue;
     let guard = 0;
     while (r.next <= today && guard++ < 500) {
-      const t = {
-        id: uid(), createdAt: new Date().toISOString(), amount: r.amount, currency: r.currency,
-        date: r.next, categoryId: r.categoryId, note: r.name, recId: r.id,
-      };
-      const fx = freshRates(); if (fx && r.next === today) t.fx = fx;
-      created.push(t);
+      const x = { id: uid(), createdAt: new Date().toISOString(), amount: r.amount, currency: r.currency, date: r.next, categoryId: r.categoryId, note: r.name || '', recId: r.id };
+      const fx = freshRates(); if (fx && r.next === today) x.fx = fx;
+      created.push(x);
       r.next = nextOccurrence(r, r.next);
     }
     if (guard) await dbPut('rec', r);
@@ -668,9 +849,27 @@ async function runRecurring() {
   if (created.length) {
     await dbPutMany('tx', created);
     S.tx.push(...created);
-    toast(`Добавлено регулярных трат: ${created.length}`);
+    toast(tn('rec_added', created.length));
   }
   return created.length;
+}
+function renderDue() {
+  const due = S.rec.filter((r) => r.active && r.variable && r.next <= todayStr()).sort((a, b) => a.next.localeCompare(b.next));
+  $('#due-card').classList.toggle('hidden', !due.length);
+  const ul = $('#due-list');
+  ul.innerHTML = '';
+  for (const r of due) {
+    const c = catById(r.categoryId);
+    const li = el('li', '', `
+      <span class="emo">${esc(c?.emoji || '🔁')}</span>
+      <span class="grow"><div class="t1">${esc(recName(r))}</div><div class="t2">${esc(short(r.next))} · ${esc(t('due_usual', { v: fmt(r.amount, r.currency) }))}</div></span>`);
+    const skip = el('button', 'btn', esc(t('due_skip')));
+    skip.onclick = async () => { r.next = nextOccurrence(r, r.next); await dbPut('rec', r); renderAll(); toast(t('due_skipped', { d: short(r.next) })); };
+    const pay = el('button', 'btn primary', esc(t('due_pay')));
+    pay.onclick = () => openTxSheet(null, { amount: r.amount, currency: r.currency, categoryId: r.categoryId, note: r.name || '', date: r.next, recId: r.id });
+    li.append(skip, pay);
+    ul.append(li);
+  }
 }
 function recMonthly(r) {
   const per = r.unit === 'week' ? 52 / 12 : r.unit === 'year' ? 1 / 12 : 1;
@@ -678,44 +877,45 @@ function recMonthly(r) {
 }
 function unitText(r) {
   const n = Math.max(1, r.every || 1);
-  const u = { month: ['месяц', 'мес.'], week: ['неделю', 'нед.'], year: ['год', 'г.'] }[r.unit];
-  return n === 1 ? `каждый ${u[0]}`.replace('каждый неделю', 'каждую неделю') : `каждые ${n} ${u[1]}`;
+  return n === 1 ? t(`every_${r.unit}`) : t(`every_n_${r.unit}`, { n });
 }
 function renderRecList() {
   const ul = $('#rec-list');
   ul.innerHTML = '';
-  if (!S.rec.length) { ul.append(el('li', 'muted small', 'Например: аренда, интернет, спортзал, подписки.')); return; }
+  if (!S.rec.length) { ul.append(el('li', 'muted small', esc(t('rec_empty')))); return; }
   const cur = S.settings.viewCur;
   let monthly = 0;
   const sorted = [...S.rec].sort((a, b) => (b.active - a.active) || a.next.localeCompare(b.next));
   for (const r of sorted) {
     const c = catById(r.categoryId);
     if (r.active) monthly += recMonthly(r);
+    const status = r.active ? t('next', { d: short(r.next, r.next.slice(0, 4) !== todayStr().slice(0, 4)) }) : t('paused');
     const li = el('li', r.active ? '' : 'archived', `
       <span class="emo">${esc(c?.emoji || '🔁')}</span>
-      <span class="grow"><div class="t1">${esc(r.name)}</div><div class="t2">${esc(unitText(r))} · ${r.active ? 'след. ' + esc(short(r.next, r.next.slice(0, 4) !== todayStr().slice(0, 4))) : 'на паузе'}</div></span>
-      <span class="right">${esc(fmt(r.amount, r.currency))}</span>`);
+      <span class="grow"><div class="t1">${esc(recName(r))}</div><div class="t2">${esc(unitText(r))} · ${esc(status)}${r.variable ? ' · ' + esc(t('varies')) : ''}</div></span>
+      <span class="right">${r.variable ? '~' : ''}${esc(fmt(r.amount, r.currency))}</span>`);
     li.onclick = () => openRecSheet(r);
     ul.append(li);
   }
-  ul.append(el('li', 'tot', `<span class="grow">≈ в месяц</span><span class="right">${esc(fmt(monthly, cur))}</span>`));
+  ul.append(el('li', 'tot', `<span class="grow">${esc(t('per_month'))}</span><span class="right">${esc(fmt(monthly, cur))}</span>`));
 }
 let recEdit = null, recCur = 'VND';
 function openRecSheet(r) {
   recEdit = r || null;
   recCur = r?.currency || S.settings.inputCur;
-  $('#rec-sheet-title').textContent = r ? 'Регулярная трата' : 'Новая регулярная трата';
-  $('#rec-name').value = r?.name || '';
+  $('#rec-sheet-title').textContent = r ? t('rec_title') : t('rec_new');
+  $('#rec-name').value = r ? recName(r) : '';
   $('#rec-amount').value = r ? String(r.amount) : '';
   segment($('#rec-cur'), curItems(), recCur, (v) => { recCur = v; });
   const sel = $('#rec-cat');
   sel.innerHTML = '';
-  for (const c of S.cats.filter((c) => !c.archived || c.id === r?.categoryId)) sel.append(new Option(`${c.emoji} ${c.name}`, c.id));
-  sel.value = r?.categoryId || (S.cats.find((c) => c.name === 'Жильё') || S.cats[0])?.id;
+  for (const c of S.cats.filter((y) => !y.archived || y.id === r?.categoryId)) sel.append(new Option(`${c.emoji} ${catName(c)}`, c.id));
+  sel.value = r?.categoryId || (S.cats.find((c) => c.key === 'rent') || S.cats[0])?.id;
   $('#rec-every').value = r?.every || 1;
   $('#rec-unit').value = r?.unit || 'month';
   $('#rec-next').value = r?.next || todayStr();
   $('#rec-active').checked = r ? r.active : true;
+  $('#rec-variable').checked = !!r?.variable;
   $('#rec-delete').classList.toggle('hidden', !r);
   openSheet('#sheet-rec');
 }
@@ -726,10 +926,11 @@ async function saveRec() {
   if (!(amount > 0)) { $('#rec-amount').focus(); return; }
   const next = $('#rec-next').value || todayStr();
   const r = recEdit ? { ...recEdit } : { id: uid() };
+  const catId = $('#rec-cat').value;
   Object.assign(r, {
-    name, amount: roundCur(amount, recCur), currency: recCur, categoryId: $('#rec-cat').value,
+    name: name === catName(catById(catId)) ? null : name, amount: roundCur(amount, recCur), currency: recCur, categoryId: catId,
     every: Math.max(1, parseInt($('#rec-every').value, 10) || 1), unit: $('#rec-unit').value,
-    next, day: parse(next).getDate(), active: $('#rec-active').checked,
+    next, day: parse(next).getDate(), active: $('#rec-active').checked, variable: $('#rec-variable').checked,
   });
   await dbPut('rec', r);
   const i = S.rec.findIndex((x) => x.id === r.id);
@@ -737,17 +938,94 @@ async function saveRec() {
   closeSheet();
   const n = await runRecurring();
   renderAll();
-  if (!n) toast(r.next === todayStr() ? 'Сохранено' : `Следующее списание: ${short(r.next, true)}`);
+  if (!n) toast(r.next <= todayStr() ? t('saved') : t('next_on', { d: short(r.next, true) }));
 }
 async function deleteRec() {
-  if (!recEdit || !confirm(`Удалить регулярную трату «${recEdit.name}»? Уже добавленные траты останутся.`)) return;
+  if (!recEdit || !confirm(t('confirm_rec_delete', { n: recName(recEdit) }))) return;
   await dbDel('rec', recEdit.id);
   S.rec = S.rec.filter((r) => r.id !== recEdit.id);
   closeSheet();
   renderAll();
 }
 
-/* ============================== Конвертер и курс ============================== */
+// Подбор регулярных платежей по истории: одинаковый комментарий в одной категории в разные месяцы,
+// а также всё из «Аренды» и «Английского», даже без комментария.
+let suggestions = [];
+function findRecurringCandidates() {
+  const ALWAYS = ['rent', 'english'];
+  const LIKELY = ['rent', 'english', 'subscriptions'];
+  const groups = new Map();
+  for (const x of S.tx) {
+    if (x.recId) continue;
+    const c = catById(x.categoryId);
+    const note = (x.note || '').trim();
+    let key;
+    if (c && ALWAYS.includes(c.key)) key = `c:${x.categoryId}`;   // аренда, английский — вся категория один платёж
+    else if (note) key = `n:${x.categoryId}:${note.toLowerCase()}`;
+    else continue;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(x);
+  }
+  const today = todayStr();
+  const out = [];
+  for (const [key, items] of groups) {
+    items.sort((a, b) => a.date.localeCompare(b.date));
+    const c = catById(items[0].categoryId);
+    const months = new Set(items.map((x) => x.date.slice(0, 7))).size;
+    const likely = c && LIKELY.includes(c.key);
+    const last = items[items.length - 1];
+    const amounts = items.filter((x) => x.currency === last.currency).map((x) => x.amount);
+    const stable = Math.max(...amounts) / Math.min(...amounts) <= 1.05;
+    // в остальных категориях повторяющийся комментарий — это скорее привычка («Пиво»), чем платёж:
+    // берём только если 3+ месяца подряд и сумма почти не меняется
+    if (!likely && !(months >= 3 && stable)) continue;
+    const name = key.startsWith('c:') ? catName(c) : last.note.trim();
+    if (S.rec.some((r) => recName(r).toLowerCase() === name.toLowerCase() || (key.startsWith('c:') && r.categoryId === c.id))) continue;
+    const day = parse(last.date).getDate();
+    let next = addMonths(last.date, 1, day);
+    while (next <= today) next = addMonths(next, 1, day);
+    out.push({
+      name, byCat: key.startsWith('c:'), categoryId: c?.id, amount: last.amount, currency: last.currency, day, next, count: items.length, months,
+      lastDate: last.date, variable: Math.max(...amounts) / Math.min(...amounts) > 1.02,
+      checked: likely && (months >= 2 || ALWAYS.includes(c.key)),
+    });
+  }
+  return out.sort((a, b) => b.checked - a.checked || b.months - a.months || b.amount - a.amount);
+}
+function openSuggest() {
+  suggestions = findRecurringCandidates();
+  if (!suggestions.length) { toast(t('sugg_none')); return; }
+  const ul = $('#suggest-list');
+  ul.innerHTML = '';
+  suggestions.forEach((s, i) => {
+    const c = catById(s.categoryId);
+    const li = el('li', '', `
+      <input type="checkbox" data-i="${i}" class="pick" ${s.checked ? 'checked' : ''}>
+      <span class="emo">${esc(c?.emoji || '🔁')}</span>
+      <span class="grow"><div class="t1">${esc(s.name)}</div>
+        <div class="t2">${esc(t('sugg_times', { n: s.count, d: short(s.lastDate, true) }))}</div>
+        <label class="var"><input type="checkbox" data-i="${i}" class="vary" ${s.variable ? 'checked' : ''}>${esc(t('varies'))}</label></span>
+      <span class="right">${esc(fmt(s.amount, s.currency))}</span>`);
+    ul.append(li);
+  });
+  openSheet('#sheet-suggest');
+}
+async function confirmSuggest() {
+  const picks = [...document.querySelectorAll('#suggest-list .pick')].filter((x) => x.checked).map((x) => +x.dataset.i);
+  const rules = picks.map((i) => {
+    const s = suggestions[i];
+    return {
+      id: uid(), name: s.byCat ? null : s.name, amount: s.amount, currency: s.currency, categoryId: s.categoryId, every: 1, unit: 'month',
+      next: s.next, day: s.day, active: true, variable: document.querySelector(`#suggest-list .vary[data-i="${i}"]`).checked,
+    };
+  });
+  if (rules.length) { await dbPutMany('rec', rules); S.rec.push(...rules); }
+  closeSheet();
+  renderAll();
+  if (rules.length) toast(tn('sugg_added', rules.length));
+}
+
+/* ============================== Конвертер, курс, язык ============================== */
 
 let convCur = 'VND';
 function renderConv() {
@@ -755,28 +1033,27 @@ function renderConv() {
   const v = parseAmount($('#conv-amount').value) || 0;
   const out = $('#conv-out');
   out.innerHTML = '';
-  for (const c of CUR_ORDER.filter((c) => c !== convCur)) {
-    out.append(el('div', '', `<span class="muted">${CUR[c].name}</span><b>${esc(fmt(conv(v, convCur, c), c, { dec: CUR[c].dec }))}</b>`));
+  for (const c of CUR_ORDER.filter((y) => y !== convCur)) {
+    out.append(el('div', '', `<span class="muted">${esc(t('cur_' + c))}</span><b>${esc(fmt(conv(v, convCur, c), c, { dec: CUR[c].dec }))}</b>`));
   }
   const r = S.settings.rates;
   $('#conv-rates').textContent = `1 ₽ = ${fmt(r.VND / r.RUB, 'VND')} · 1 $ = ${fmt(r.VND, 'VND')} · ${ratesStatus()}`;
-  const table = $('#conv-cheat');
   const steps = [10000, 20000, 50000, 100000, 200000, 500000, 1000000, 2000000, 5000000];
-  table.innerHTML = steps.map((s) => `<tr><td>${esc(fmt(s, 'VND'))}</td><td>${esc(fmt(conv(s, 'VND', 'RUB'), 'RUB', { dec: 0 }))}</td><td>${esc(fmt(conv(s, 'VND', 'USD'), 'USD', { dec: s < 100000 ? 2 : 0 }))}</td></tr>`).join('');
+  $('#conv-cheat').innerHTML = steps.map((s) => `<tr><td>${esc(fmt(s, 'VND'))}</td><td>${esc(fmt(conv(s, 'VND', 'RUB'), 'RUB', { dec: 0 }))}</td><td>${esc(fmt(conv(s, 'VND', 'USD'), 'USD', { dec: s < 100000 ? 2 : 0 }))}</td></tr>`).join('');
 }
 function ratesStatus() {
-  if (S.settings.ratesSource === 'api') return `курс от ${short(S.settings.ratesDate, true)}`;
-  if (S.settings.ratesSource === 'manual') return 'курс задан вручную';
-  return 'курс приблизительный — обновите';
+  if (S.settings.ratesSource === 'api') return t('rates_api', { d: short(S.settings.ratesDate, true) });
+  if (S.settings.ratesSource === 'manual') return t('rates_manual');
+  return t('rates_default');
 }
 function renderSettings() {
+  segment($('#lang-seg'), LANGS, lang(), async (v) => { S.settings.lang = v; await saveSettings(); applyI18n(); renderAll(); });
   segment($('#default-cur'), curItems(), S.settings.inputCur, async (v) => { S.settings.inputCur = v; await saveSettings(); });
   const r = S.settings.rates;
   if (document.activeElement !== $('#rate-vnd')) $('#rate-vnd').value = round(r.VND, 2);
   if (document.activeElement !== $('#rate-rub')) $('#rate-rub').value = round(r.RUB, 4);
-  $('#rates-info').textContent = `1 000 000 ₫ ≈ ${fmt(conv(1e6, 'VND', 'RUB'), 'RUB', { dec: 0 })} · ${ratesStatus()}. Обновляется автоматически раз в день.`;
+  $('#rates-info').textContent = t('rates_info', { m: fmt(1e6, 'VND'), v: fmt(conv(1e6, 'VND', 'RUB'), 'RUB', { dec: 0 }), s: ratesStatus() });
 }
-const round = (v, d) => Math.round(v * 10 ** d) / 10 ** d;
 async function setManualRate(cur, input) {
   const v = parseAmount(input.value);
   if (!(v > 0)) { renderSettings(); return; }
@@ -792,13 +1069,12 @@ async function setManualRate(cur, input) {
 function csvCell(v) { const s = String(v ?? ''); return /[",;\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; }
 function buildCsv(list) {
   const head = ['date', 'weekday', 'amount', 'currency', 'amount_vnd', 'amount_rub', 'amount_usd', 'category', 'note', 'recurring'];
-  const wd = ['вс', 'пн', 'вт', 'ср', 'чт', 'пт', 'сб'];
-  const rows = [...list].sort((a, b) => a.date.localeCompare(b.date)).map((t) => {
-    const c = catById(t.categoryId);
-    return [t.date, wd[parse(t.date).getDay()], t.amount, t.currency,
-      Math.round(txIn(t, 'VND')), round(txIn(t, 'RUB'), 2), round(txIn(t, 'USD'), 2),
-      c?.name || '', t.note || '', t.recId ? 'yes' : ''].map(csvCell).join(',');
-  });
+  const wd = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  const rows = [...list].sort((a, b) => a.date.localeCompare(b.date)).map((x) => [
+    x.date, wd[parse(x.date).getDay()], x.amount, x.currency,
+    Math.round(txIn(x, 'VND')), round(txIn(x, 'RUB'), 2), round(txIn(x, 'USD'), 2),
+    catName(catById(x.categoryId)), x.note || '', x.recId ? 'yes' : '',
+  ].map(csvCell).join(','));
   return '﻿' + [head.join(','), ...rows].join('\n');
 }
 async function shareFile(name, text, mime) {
@@ -815,15 +1091,15 @@ async function shareFile(name, text, mime) {
   setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
 }
 function exportRange(a, b) {
-  const list = S.tx.filter((t) => (!a || t.date >= a) && (!b || t.date <= b));
-  if (!list.length) { toast('За этот период трат нет'); return; }
-  const first = a || list.reduce((m, t) => (t.date < m ? t.date : m), '9999');
-  const last = b || list.reduce((m, t) => (t.date > m ? t.date : m), '0000');
-  shareFile(`traty_${first}_${last}.csv`, buildCsv(list), 'text/csv');
+  const list = S.tx.filter((x) => (!a || x.date >= a) && (!b || x.date <= b));
+  if (!list.length) { toast(t('no_expenses_export')); return; }
+  const first = a || list.reduce((m, x) => (x.date < m ? x.date : m), '9999');
+  const last = b || list.reduce((m, x) => (x.date > m ? x.date : m), '0000');
+  shareFile(`expenses_${first}_${last}.csv`, buildCsv(list), 'text/csv');
 }
 async function backup() {
-  const data = { app: 'trati', version: 1, exportedAt: new Date().toISOString(), settings: S.settings, categories: S.cats, recurring: S.rec, transactions: S.tx };
-  await shareFile(`traty_backup_${todayStr()}.json`, JSON.stringify(data), 'application/json');
+  const data = { app: 'trati', version: 2, exportedAt: new Date().toISOString(), settings: S.settings, categories: S.cats, recurring: S.rec, transactions: S.tx };
+  await shareFile(`expenses_backup_${todayStr()}.json`, JSON.stringify(data), 'application/json');
   S.settings.lastBackup = todayStr();
   await saveSettings();
   renderStorageInfo();
@@ -832,7 +1108,7 @@ async function restore(file) {
   try {
     const data = JSON.parse(await file.text());
     if (data.app !== 'trati' || !Array.isArray(data.transactions)) throw new Error('format');
-    if (!confirm(`Заменить текущие данные копией от ${short(data.exportedAt.slice(0, 10), true)}? Трат в копии: ${data.transactions.length}.`)) return;
+    if (!confirm(t('restore_confirm', { d: short(data.exportedAt.slice(0, 10), true), n: data.transactions.length }))) return;
     for (const s of ['tx', 'cats', 'rec']) await dbClear(s);
     await dbPutMany('cats', data.categories || []);
     await dbPutMany('rec', data.recurring || []);
@@ -840,17 +1116,19 @@ async function restore(file) {
     S.settings = { ...DEFAULT_SETTINGS, ...data.settings, catsSeeded: true };
     await saveSettings();
     await loadAll();
+    await migrateCategories();
+    applyI18n();
     renderAll();
-    toast('Данные восстановлены');
+    toast(t('restored'));
   } catch (e) {
-    toast('Это не резервная копия этого приложения');
+    toast(t('not_backup'));
   }
 }
 async function renderStorageInfo() {
-  const parts = [`Трат: ${S.tx.length}`];
-  if (S.settings.lastBackup) parts.push(`последняя копия ${short(S.settings.lastBackup, true)}`);
-  else if (S.tx.length) parts.push('копий ещё не было');
-  try { if (navigator.storage?.persisted && (await navigator.storage.persisted())) parts.push('хранилище защищено от очистки'); } catch (_) {}
+  const parts = [t('storage_n', { n: S.tx.length })];
+  if (S.settings.lastBackup) parts.push(t('last_backup', { d: short(S.settings.lastBackup, true) }));
+  else if (S.tx.length) parts.push(t('no_backup'));
+  try { if (navigator.storage?.persisted && (await navigator.storage.persisted())) parts.push(t('persisted')); } catch (_) {}
   $('#storage-info').textContent = parts.join(' · ');
 }
 
@@ -863,7 +1141,7 @@ function loadSheetJS() {
     const s = document.createElement('script');
     s.src = 'https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js';
     s.onload = () => res(window.XLSX);
-    s.onerror = () => rej(new Error('Не удалось загрузить модуль Excel — нужен интернет'));
+    s.onerror = () => rej(new Error(t('excel_fail')));
     document.head.append(s);
   });
 }
@@ -893,22 +1171,6 @@ function findCols(header) {
   });
   return cols;
 }
-// Названия категорий из старого приложения → категории «Трат».
-const CAT_ALIASES = {
-  groceries: 'Продукты', food: 'Продукты', cafe: 'Кафе и рестораны', restaurants: 'Кафе и рестораны', 'eating out': 'Кафе и рестораны',
-  coffee: 'Кофе', transportation: 'Транспорт', transport: 'Транспорт', taxi: 'Транспорт', home: 'Дом', household: 'Дом',
-  rent: 'Аренда', health: 'Здоровье', leisure: 'Развлечения', entertainment: 'Развлечения', clothes: 'Одежда', clothing: 'Одежда',
-  gifts: 'Подарки', gift: 'Подарки', workout: 'Спорт', sport: 'Спорт', sports: 'Спорт', fitness: 'Спорт', travel: 'Путешествия',
-  subscriptions: 'Подписки', education: 'Образование', delivery: 'Доставка', other: 'Другое', others: 'Другое',
-  'связь и подписки': 'Подписки', 'жильё': 'Аренда', 'жилье': 'Аренда',
-};
-function mapCatName(name) {
-  const n = String(name || '').trim();
-  if (!n) return 'Другое';
-  // точное совпадение с существующей категорией важнее псевдонима
-  if (S.cats.some((c) => c.name.toLowerCase() === n.toLowerCase())) return S.cats.find((c) => c.name.toLowerCase() === n.toLowerCase()).name;
-  return CAT_ALIASES[n.toLowerCase()] || n;
-}
 function toYmd(v) {
   if (v instanceof Date && !isNaN(v)) return ymd(v);
   if (typeof v === 'number') { const d = new Date(Math.round((v - 25569) * 86400000)); return ymd(new Date(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate())); }
@@ -919,16 +1181,31 @@ function toYmd(v) {
   if (m) return `${m[3]}-${pad(m[2])}-${pad(m[1])}`;
   return null;
 }
+// Куда попадёт категория из файла: {id} — существующая, {key} — новая стандартная, {name} — новая своя.
+function resolveImportCat(src) {
+  const n = String(src || '').trim().toLowerCase();
+  if (!n) return resolveKey('other');
+  const exact = S.cats.find((c) => [c.name, c.key && T.en[`cat_${c.key}`], c.key && T.ru[`cat_${c.key}`]].some((x) => x && x.toLowerCase() === n));
+  if (exact) return { id: exact.id };
+  if (CAT_ALIASES[n]) return resolveKey(CAT_ALIASES[n]);
+  return { name: String(src).trim() };
+}
+function resolveKey(key) { const c = S.cats.find((x) => x.key === key); return c ? { id: c.id } : { key }; }
+const targetName = (tg) => (tg.id ? catName(catById(tg.id)) : tg.key ? t(`cat_${tg.key}`) : tg.name);
+const targetEmoji = (tg) => (tg.id ? catById(tg.id).emoji : tg.key ? keyEmoji(tg.key) : guessEmoji(tg.name));
+const targetId = (tg) => tg.id || (tg.key ? `key:${tg.key}` : `name:${tg.name.toLowerCase()}`);
+function keyEmoji(key) { return (DEFAULT_CATS.find((d) => d[0] === key) || [null, ...(EXTRA_KEYS[key] || ['🏷️'])])[1]; }
+function keyColor(key) { const d = DEFAULT_CATS.find((x) => x[0] === key); return d ? d[2] : (EXTRA_KEYS[key] || [null, S.cats.length % SLOTS])[1]; }
+
 async function importMM(file) {
   try {
     const XLSX = await loadSheetJS();
     // даты читаем как числа Excel и переводим сами: так не бывает сдвига на день из-за часового пояса
     const wb = XLSX.read(await file.arrayBuffer(), { type: 'array', cellDates: false });
     const sheetName = wb.SheetNames.find((n) => /expense|расход/i.test(n)) || wb.SheetNames[0];
-    const ws = wb.Sheets[sheetName];
-    const rows = XLSX.utils.sheet_to_json(ws, { header: 1, raw: true, defval: '' });
+    const rows = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { header: 1, raw: true, defval: '' });
     const hi = rows.findIndex((r) => { const c = findCols(r); return c.date != null && c.category != null && (c.amount != null || c.mainAmount != null || c.defAmount != null); });
-    if (hi < 0) throw new Error('Не нашёл колонки «дата», «категория», «сумма»');
+    if (hi < 0) throw new Error(t('no_cols'));
     const cols = findCols(rows[hi]);
     const items = [];
     let skippedIncome = 0, bad = 0;
@@ -945,7 +1222,6 @@ async function importMM(file) {
         currency = cols.defCurrency != null ? String(r[cols.defCurrency]).trim().toUpperCase() : '';
       }
       if (!CUR[currency]) {
-        // нет валюты или она незнакомая — берём сумму в основной валюте файла
         const main = cols.mainAmount != null ? String(rows[hi][cols.mainAmount]).trim().toUpperCase() : '';
         if (cols.mainAmount != null && CUR[main]) { amount = Math.abs(parseAmount(r[cols.mainAmount])); currency = main; }
         else currency = S.settings.inputCur;
@@ -954,71 +1230,74 @@ async function importMM(file) {
       const sub = cols.sub != null ? String(r[cols.sub]).trim() : '';
       const note = [cols.note, cols.desc, cols.tags].map((c) => (c != null ? String(r[c]).trim() : '')).filter(Boolean).join(' — ');
       const srcCat = String(r[cols.category]).trim();
-      items.push({ date, amount: roundCur(amount, currency), currency, srcCat, catName: mapCatName(srcCat), note: [sub, note].filter(Boolean).join(': ') });
+      items.push({ date, amount: roundCur(amount, currency), currency, srcCat, target: resolveImportCat(srcCat), note: [sub, note].filter(Boolean).join(': ') });
     }
-    if (!items.length) throw new Error('В файле не нашлось расходов');
-    // дубликаты: такие же дата+сумма+категория+заметка уже есть
+    if (!items.length) throw new Error(t('no_expenses_file'));
+    // дубликаты: такая же дата+сумма+категория+комментарий уже есть
     const key = (d, a, c, n) => `${d}|${a}|${c}|${n}`;
-    const existing = new Set(S.tx.map((t) => key(t.date, t.amount, (catById(t.categoryId)?.name || '').toLowerCase(), t.note || '')));
-    const fresh = items.filter((i) => !existing.has(key(i.date, i.amount, i.catName.toLowerCase(), i.note)));
-    const catNames = [...new Set(fresh.map((i) => i.catName))];
-    const newCats = catNames.filter((n) => !S.cats.find((c) => c.name.toLowerCase() === n.toLowerCase()));
+    const existing = new Set(S.tx.map((x) => key(x.date, x.amount, x.categoryId, x.note || '')));
+    const fresh = items.filter((i) => !(i.target.id && existing.has(key(i.date, i.amount, i.target.id, i.note))));
     const dates = fresh.map((i) => i.date).sort();
-    pendingImport = { items: fresh, newCats };
+    pendingImport = { items: fresh };
     const byCur = {};
     fresh.forEach((i) => { byCur[i.currency] = (byCur[i.currency] || 0) + 1; });
     $('#import-preview').innerHTML = `
-      <p>Найдено расходов: <b>${items.length}</b>${items.length !== fresh.length ? `, из них новых: <b>${fresh.length}</b> (остальные уже есть)` : ''}.</p>
-      ${fresh.length ? `<p>Период: ${esc(short(dates[0], true))} – ${esc(short(dates[dates.length - 1], true))}. Валюты: ${esc(Object.entries(byCur).map(([c, n]) => `${c} (${n})`).join(', '))}.</p>` : ''}
-      ${catMapHtml(fresh, newCats)}
-      ${skippedIncome ? `<p class="muted small">Пропущено доходов и переводов: ${skippedIncome}.</p>` : ''}
-      ${bad ? `<p class="warn small">Не удалось разобрать строк: ${bad}.</p>` : ''}
-      <table>${fresh.slice(0, 5).map((i) => `<tr><td>${esc(i.date)}</td><td>${esc(i.catName)}</td><td>${esc(i.note)}</td><td style="text-align:right">${esc(fmt(i.amount, i.currency))}</td></tr>`).join('')}</table>`;
+      <p>${t('imp_found', { n: items.length })}${items.length !== fresh.length ? t('imp_new', { n: fresh.length }) : ''}.</p>
+      ${fresh.length ? `<p>${esc(t('imp_period', { a: short(dates[0], true), b: short(dates[dates.length - 1], true), c: Object.entries(byCur).map(([c, n]) => `${c} (${n})`).join(', ') }))}</p>` : ''}
+      ${fresh.length ? catMapHtml(fresh) : ''}
+      ${skippedIncome ? `<p class="muted small">${esc(t('imp_skipped', { n: skippedIncome }))}</p>` : ''}
+      ${bad ? `<p class="warn small">${esc(t('imp_bad', { n: bad }))}</p>` : ''}`;
     $('#import-ok').disabled = !fresh.length;
     openSheet('#sheet-import');
   } catch (e) {
-    toast(e.message || 'Не удалось прочитать файл');
+    toast(e.message || t('read_fail'));
   }
 }
 // Таблица «категория в файле → категория здесь», чтобы перед импортом было видно, куда что попадёт.
-function catMapHtml(items, newCats) {
+function catMapHtml(items) {
   const m = new Map();
-  for (const i of items) { const k = `${i.srcCat}→${i.catName}`; const e = m.get(k) || { src: i.srcCat, dst: i.catName, n: 0 }; e.n++; m.set(k, e); }
-  const rows = [...m.values()].sort((a, b) => b.n - a.n).map((e) => {
-    const isNew = newCats.includes(e.dst);
-    const c = S.cats.find((x) => x.name === e.dst);
-    return `<tr><td>${esc(e.src || '—')}</td><td>→ ${esc((c?.emoji || guessEmoji(e.dst)) + ' ' + e.dst)}${isNew ? ' <span class="muted">(новая)</span>' : ''}</td><td style="text-align:right">${e.n}</td></tr>`;
-  });
-  return `<p class="small">Категории:</p><table>${rows.join('')}</table><p></p>`;
+  for (const i of items) {
+    const k = `${i.srcCat}→${targetId(i.target)}`;
+    const e = m.get(k) || { src: i.srcCat, tg: i.target, n: 0 };
+    e.n++;
+    m.set(k, e);
+  }
+  const rows = [...m.values()].sort((a, b) => b.n - a.n).map((e) => `<tr><td>${esc(e.src || '—')}</td><td>→ ${esc(targetEmoji(e.tg) + ' ' + targetName(e.tg))}${e.tg.id ? '' : ` <span class="muted">${esc(t('imp_newcat'))}</span>`}</td><td style="text-align:right">${e.n}</td></tr>`);
+  return `<p class="small">${esc(t('imp_cats'))}</p><table>${rows.join('')}</table><p></p>`;
 }
 async function confirmImport() {
   if (!pendingImport) return;
-  const { items, newCats } = pendingImport;
+  const { items } = pendingImport;
   let order = Math.max(0, ...S.cats.map((c) => c.order));
-  for (const name of newCats) {
-    const c = { id: uid(), name, emoji: guessEmoji(name), color: S.cats.length % SLOTS, order: ++order, archived: false };
+  const ids = new Map();
+  for (const i of items) {
+    const tid = targetId(i.target);
+    if (i.target.id || ids.has(tid)) continue;
+    const c = i.target.key
+      ? { id: uid(), key: i.target.key, name: null, emoji: keyEmoji(i.target.key), color: keyColor(i.target.key), order: ++order, archived: false }
+      : { id: uid(), name: i.target.name, emoji: guessEmoji(i.target.name), color: S.cats.length % SLOTS, order: ++order, archived: false };
     S.cats.push(c);
     await dbPut('cats', c);
+    ids.set(tid, c.id);
   }
-  const byName = new Map(S.cats.map((c) => [c.name.toLowerCase(), c.id]));
   const now = new Date().toISOString();
-  const txs = items.map((i) => ({ id: uid(), createdAt: now, date: i.date, amount: i.amount, currency: i.currency, categoryId: byName.get(i.catName.toLowerCase()), note: i.note, source: 'moneymanager' }));
+  const txs = items.map((i) => ({ id: uid(), createdAt: now, date: i.date, amount: i.amount, currency: i.currency, categoryId: i.target.id || ids.get(targetId(i.target)), note: i.note, source: 'moneymanager' }));
   await dbPutMany('tx', txs);
   S.tx.push(...txs);
   pendingImport = null;
   closeSheet();
   renderAll();
-  toast(`Импортировано трат: ${txs.length}`);
+  toast(t('imported', { n: txs.length }));
 }
 function guessEmoji(name) {
-  const n = name.toLowerCase();
+  const n = String(name).toLowerCase();
   const map = [
     [/food|еда|продукт|grocer|супермаркет/, '🛒'], [/cafe|кафе|ресторан|restaurant|eat|обед|ужин/, '🍜'], [/coffee|кофе/, '☕'],
     [/delivery|доставк/, '🥡'], [/сиг|cigar|smok|курен/, '🚬'], [/англ|english|язык|language/, '🇬🇧'],
     [/transport|транспорт|taxi|такси|grab|bike|байк|бензин|fuel/, '🛵'], [/rent|аренд|квартир/, '🔑'], [/жиль|house|home|дом/, '🏠'],
-    [/phone|связь|интернет|подпис|subscr/, '📱'], [/health|здоров|аптек|врач|medic/, '💊'], [/fun|развлеч|entertain|кино|бар|party/, '🎉'],
+    [/phone|связь|интернет|подпис|subscr/, '📱'], [/health|здоров|аптек|врач|medic/, '💊'], [/fun|развлеч|entertain|кино|бар|party|leisure/, '🎉'],
     [/cloth|одежд/, '👕'], [/shop|покуп/, '🛍️'], [/travel|путеш|отпуск|trip|отел|hotel/, '✈️'], [/gift|подар/, '🎁'],
-    [/beauty|красот|салон/, '💅'], [/sport|спорт|gym|зал/, '🏋️'], [/educat|образов|курс|книг|book/, '📚'], [/pet|питом|кот|собак/, '🐾'],
+    [/beauty|красот|салон/, '💅'], [/sport|спорт|gym|зал|workout/, '🏋️'], [/educat|образов|курс|книг|book/, '📚'], [/pet|питом|кот|собак/, '🐾'],
   ];
   return (map.find(([re]) => re.test(n)) || [null, '🏷️'])[1];
 }
@@ -1037,11 +1316,12 @@ async function loadAll() {
   [S.tx, S.cats, S.rec] = await Promise.all([dbAll('tx'), dbAll('cats'), dbAll('rec')]);
 }
 function switchTab(name) {
-  document.querySelectorAll('.tab').forEach((t) => t.classList.toggle('active', t.id === `tab-${name}`));
+  document.querySelectorAll('.tab').forEach((x) => x.classList.toggle('active', x.id === `tab-${name}`));
   document.querySelectorAll('.tabbar button').forEach((b) => b.classList.toggle('active', b.dataset.tab === name));
   window.scrollTo(0, 0);
   if (name === 'main') renderMain();
 }
+const add000 = (sel, after) => () => { const a = $(sel); a.value = (a.value || '') + '000'; after && after(); };
 
 function bind() {
   $('#period-seg').addEventListener('click', (e) => {
@@ -1063,8 +1343,8 @@ function bind() {
   $('#clear-filter').onclick = () => { S.catFilter = null; renderMain(); };
   $('#rec-toggle').onclick = async () => { S.settings.hideRec = !S.settings.hideRec; await saveSettings(); renderMain(); };
   $('#donut').addEventListener('click', () => { if (S.catFilter) { S.catFilter = null; renderMain(); } });
-
   let rz; window.addEventListener('resize', () => { clearTimeout(rz); rz = setTimeout(renderMain, 150); });
+
   $('#fab').onclick = () => openTxSheet(null);
   $('#backdrop').onclick = closeSheet;
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeSheet(); });
@@ -1073,7 +1353,7 @@ function bind() {
   // шторка траты
   $('#tx-amount').addEventListener('input', updateAmountHint);
   $('#tx-amount').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); $('#tx-amount').blur(); } });
-  $('#tx-000').onclick = () => { const a = $('#tx-amount'); a.value = (a.value || '') + '000'; updateAmountHint(); };
+  $('#tx-000').onclick = add000('#tx-amount', updateAmountHint);
   $('#tx-date-chips').addEventListener('click', (e) => { const d = e.target.closest('button')?.dataset.d; if (d != null) { txState.date = addDays(todayStr(), +d); updateTxDate(); } });
   $('#tx-date').onchange = (e) => { if (e.target.value) { txState.date = e.target.value; updateTxDate(); } };
   $('#tx-save').onclick = saveTx;
@@ -1089,10 +1369,14 @@ function bind() {
   $('#add-rec').onclick = () => openRecSheet(null);
   $('#rec-save').onclick = saveRec;
   $('#rec-delete').onclick = deleteRec;
-  $('#rec-000').onclick = () => { const a = $('#rec-amount'); a.value = (a.value || '') + '000'; };
+  $('#rec-000').onclick = add000('#rec-amount');
+  $('#rec-suggest').onclick = openSuggest;
+  $('#suggest-ok').onclick = confirmSuggest;
+  $('#suggest-cancel').onclick = closeSheet;
 
   // конвертер и курс
   $('#conv-amount').addEventListener('input', renderConv);
+  $('#conv-000').onclick = add000('#conv-amount', renderConv);
   $('#refresh-rates').onclick = () => refreshRates(true);
   $('#rate-vnd').onchange = (e) => setManualRate('VND', e.target);
   $('#rate-rub').onchange = (e) => setManualRate('RUB', e.target);
@@ -1109,8 +1393,8 @@ function bind() {
   $('#import-ok').onclick = confirmImport;
   $('#import-cancel').onclick = () => { pendingImport = null; closeSheet(); };
   $('#wipe').onclick = async () => {
-    if (!confirm('Удалить все траты, категории и регулярные платежи? Это нельзя отменить.')) return;
-    if (!confirm('Точно? Сначала лучше сохранить резервную копию.')) return;
+    if (!confirm(t('wipe1'))) return;
+    if (!confirm(t('wipe2'))) return;
     for (const s of ['tx', 'cats', 'rec', 'kv']) await dbClear(s);
     location.reload();
   };
@@ -1118,30 +1402,44 @@ function bind() {
   // при возвращении в приложение — новый день, регулярные траты, курс
   document.addEventListener('visibilitychange', async () => {
     if (document.visibilityState !== 'visible') return;
-    if (await runRecurring()) renderAll();
+    await runRecurring();
+    renderAll();
     if (S.settings.ratesSource !== 'manual' && S.settings.ratesDate !== todayStr()) refreshRates(false);
   });
 }
 
+/* ============================== Категории: начальный набор и миграции ============================== */
+
 async function seedCategories() {
-  const cats = DEFAULT_CATS.map(([emoji, name, color], i) => ({ id: uid(), emoji, name, color, order: i, archived: false }));
+  const cats = DEFAULT_CATS.map(([key, emoji, color], i) => ({ id: uid(), key, name: null, emoji, color, order: i, archived: false }));
   await dbPutMany('cats', cats);
   S.settings.catsSeeded = true;
-  S.settings.catsVersion = 2;
+  S.settings.catsVersion = 3;
   await saveSettings();
 }
-// Набор категорий v2. Старый набор заменяется, только если трат ещё нет и категории никто не менял.
 async function migrateCategories() {
-  if (S.settings.catsVersion >= 2) return;
-  const untouched = !S.tx.length && !S.rec.length && S.cats.length === OLD_DEFAULT_NAMES.length && S.cats.every((c) => OLD_DEFAULT_NAMES.includes(c.name) && !c.archived);
-  if (untouched) {
+  const v = S.settings.catsVersion || 1;
+  if (v >= 3) return;
+  // v1: самый первый набор, если его не трогали, заменяем целиком
+  const untouchedV1 = v < 2 && !S.tx.length && !S.rec.length && S.cats.length === OLD_DEFAULT_NAMES.length
+    && S.cats.every((c) => OLD_DEFAULT_NAMES.includes(c.name) && !c.archived);
+  if (untouchedV1) {
     await dbClear('cats');
     await seedCategories();
     S.cats = await dbAll('cats');
-  } else {
-    S.settings.catsVersion = 2;
-    await saveSettings();
+    return;
   }
+  // v1/v2: категориям со стандартными названиями присваиваем ключ, чтобы они переводились. id не меняются.
+  for (const c of S.cats) {
+    if (c.key || !c.name) continue;
+    const key = CAT_ALIASES[c.name.trim().toLowerCase()];
+    if (!key || S.cats.some((x) => x.key === key)) continue;
+    c.key = key;
+    c.name = null;
+    await dbPut('cats', c);
+  }
+  S.settings.catsVersion = 3;
+  await saveSettings();
 }
 
 async function init() {
@@ -1150,6 +1448,7 @@ async function init() {
   if (!S.settings.catsSeeded) await seedCategories();
   await loadAll();
   await migrateCategories();
+  applyI18n();
   bind();
   await runRecurring();
   renderAll();

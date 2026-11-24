@@ -315,3 +315,11 @@ h2 { font-size: 17px; margin: 0 0 10px; letter-spacing: -0.01em; }
 .toast { width: max-content; }
 .cat-grid button .n { word-break: normal; overflow-wrap: normal; hyphens: auto; -webkit-hyphens: auto; }
 .rec-toggle { display: block; margin: 8px auto 0; font-size: 13px; }
+.tabbar button b { font-weight: inherit; }
+.due { border-color: var(--accent); }
+.due .rows li { cursor: default; }
+.due .btn { min-height: 36px; padding: 0 12px; font-size: 14px; }
+.suggest li { cursor: default; align-items: flex-start; }
+.suggest input[type="checkbox"] { width: 22px; height: 22px; margin-top: 4px; flex: none; }
+.suggest .var { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--ink-2); margin-top: 4px; }
+.suggest .var input { width: 16px; height: 16px; margin: 0; }

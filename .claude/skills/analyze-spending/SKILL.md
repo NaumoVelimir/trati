@@ -7,7 +7,7 @@ description: Анализ выгрузки трат (CSV из приложени
 
 ## Данные
 
-- Выгрузки: `exports/traty_<от>_<до>.csv`. Колонки: `date, weekday, amount, currency, amount_vnd, amount_rub, amount_usd, category, note, recurring`.
+- Выгрузки: `exports/expenses_<от>_<до>.csv`. Колонки: `date, weekday, amount, currency, amount_vnd, amount_rub, amount_usd, category, note, recurring`.
 - Считай в рублях (`amount_rub`) — пользователь думает в рублях. Донги указывай рядом, если это помогает.
 - `recurring=yes` — регулярные платежи (аренда, подписки). Анализируй их отдельно от повседневных трат: их сокращают другими решениями.
 - Прошлые отчёты: `exports/analyses/*.md`. Прочитай последние 2–3, чтобы сравнивать с ними и проверить, сработали ли прошлые рекомендации.

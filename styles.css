@@ -60,6 +60,8 @@
 
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
 html, body { margin: 0; }
+/* без зума по двойному тапу: быстрые нажатия (например, «000» два раза) остаются обычными нажатиями */
+html, body, button, input, select, a, label { touch-action: manipulation; }
 body {
   background: var(--page);
   color: var(--ink);

@@ -325,3 +325,4 @@ h2 { font-size: 17px; margin: 0 0 10px; letter-spacing: -0.01em; }
 .suggest input[type="checkbox"] { width: 22px; height: 22px; margin-top: 4px; flex: none; }
 .suggest .var { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--ink-2); margin-top: 4px; }
 .suggest .var input { width: 16px; height: 16px; margin: 0; }
+#bars text.sel { fill: var(--ink); font-weight: 700; }

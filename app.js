@@ -74,7 +74,8 @@ const T = {
     vs_day: 'vs yesterday', vs_week: 'vs last week', vs_month: 'vs last month', vs_year: 'vs last year', vs_custom: 'vs previous period',
     was: 'was {v}', prev_total: 'Previous period: {v}', no_expenses_period: 'No expenses in this period', new_cat: 'new',
     no_category: 'No category', rec_hide: '🔁 Hide recurring', rec_show: '🔁 Recurring hidden — show',
-    by_days: 'By day', by_months: 'By month', avg_day: 'avg {v} per day', avg_month: 'avg {v} per month',
+    by_days: 'By day', by_weeks: 'By week', by_months: 'By month', by_years: 'By year',
+    avg_day: 'avg {v} per day', avg_week: 'avg {v} per week', avg_month: 'avg {v} per month', avg_year: 'avg {v} per year',
     transactions: 'Transactions', empty_tx: 'Nothing yet. Tap “+” to add an expense.', show_more: 'Show more ({n})',
     recurring_tag: '🔁 recurring', choose_cat: 'Choose a category', undo: 'Undo', restore_btn: 'Restore', saved: 'Saved',
     deleted: 'Expense deleted', expenses_n: ['{n} expense', '{n} expenses'], archived: 'archived', cat_new: 'New category',
@@ -131,7 +132,8 @@ const T = {
     vs_day: 'ко вчера', vs_week: 'к прошлой неделе', vs_month: 'к прошлому месяцу', vs_year: 'к прошлому году', vs_custom: 'к предыдущему периоду',
     was: 'было {v}', prev_total: 'В предыдущем периоде: {v}', no_expenses_period: 'Трат за этот период нет', new_cat: 'новое',
     no_category: 'Без категории', rec_hide: '🔁 Скрыть регулярные траты', rec_show: '🔁 Регулярные траты скрыты — показать',
-    by_days: 'По дням', by_months: 'По месяцам', avg_day: 'в среднем {v} в день', avg_month: 'в среднем {v} в мес.',
+    by_days: 'По дням', by_weeks: 'По неделям', by_months: 'По месяцам', by_years: 'По годам',
+    avg_day: 'в среднем {v} в день', avg_week: 'в среднем {v} в нед.', avg_month: 'в среднем {v} в мес.', avg_year: 'в среднем {v} в год',
     transactions: 'Операции', empty_tx: 'Пока пусто. Нажмите «+», чтобы добавить трату.', show_more: 'Показать ещё ({n})',
     recurring_tag: '🔁 регулярная', choose_cat: 'Выберите категорию', undo: 'Отменить', restore_btn: 'Вернуть', saved: 'Сохранено',
     deleted: 'Трата удалена', expenses_n: ['{n} трата', '{n} траты', '{n} трат'], archived: 'в архиве', cat_new: 'Новая категория',
@@ -494,7 +496,7 @@ function renderMain() {
   rt.classList.toggle('hidden', !S.tx.some((x) => x.recId));
   rt.textContent = S.settings.hideRec ? t('rec_show') : t('rec_hide');
 
-  renderBars(range, list, cur);
+  renderBars(cur);
   renderTxList(list, cur);
 }
 
@@ -555,50 +557,102 @@ function renderDonut(cats, total, cur) {
   }
 }
 
-function renderBars([a, b], list, cur) {
-  const card = $('#bars-card');
-  if (S.period === 'day') { card.classList.add('hidden'); return; }
-  card.classList.remove('hidden');
-  const byMonth = S.period === 'year' || diffDays(a, b) > 92;
-  const buckets = [];
-  if (byMonth) {
-    let d = a.slice(0, 7) + '-01';
-    while (d <= b) { buckets.push({ key: d.slice(0, 7), label: monthName(d, 'short').slice(0, 3), v: 0, full: `${monthName(d)} ${d.slice(0, 4)}` }); d = addMonths(d, 1, 1); }
-  } else {
-    for (let d = a; d <= b; d = addDays(d, 1)) buckets.push({ key: d, label: String(parse(d).getDate()), v: 0, full: longDay(d) });
+// Столбики следуют за переключателем периода: День — последние 30 дней, Неделя — 12 недель,
+// Месяц — 12 месяцев, Год — по годам. Выбранный период выделен, нажатие на столбик переходит к нему.
+// Для произвольного периода — по дням внутри него (или по месяцам, если он длиннее трёх месяцев).
+const BAR_COUNT = { day: 30, week: 12, month: 12 };
+function bucketKey(unit, date) {
+  if (unit === 'day') return date;
+  if (unit === 'week') return rangeOf('week', date)[0];
+  if (unit === 'month') return date.slice(0, 7) + '-01';
+  return date.slice(0, 4) + '-01-01';
+}
+function bucketLabel(unit, start, n) {
+  if (unit === 'day') return String(parse(start).getDate());
+  if (unit === 'week') return fmtD({ day: 'numeric', month: 'numeric' }).format(parse(start));
+  if (unit === 'month') return monthName(start, 'short').slice(0, 3);
+  return start.slice(0, 4);
+}
+function bucketFull(unit, start) {
+  if (unit === 'day') return longDay(start);
+  if (unit === 'week') return `${short(start)} – ${short(addDays(start, 6))}`;
+  if (unit === 'month') return `${monthName(start)} ${start.slice(0, 4)}`;
+  return start.slice(0, 4);
+}
+function barBuckets() {
+  if (S.period === 'custom') {
+    const [a, b] = currentRange();
+    const unit = diffDays(a, b) > 92 ? 'month' : 'day';
+    const starts = [];
+    for (let d = bucketKey(unit, a); d <= b; d = unit === 'day' ? addDays(d, 1) : addMonths(d, 1, 1)) starts.push(d);
+    return { unit, starts, nav: false };
   }
-  const idx = new Map(buckets.map((x, i) => [x.key, i]));
-  const src = S.catFilter ? list.filter((x) => x.categoryId === S.catFilter) : list;
-  for (const x of src) { const i = idx.get(byMonth ? x.date.slice(0, 7) : x.date); if (i != null) buckets[i].v += txIn(x, cur); }
-
-  $('#bars-title').textContent = byMonth ? t('by_months') : t('by_days');
+  const unit = S.period;
   const td = todayStr();
-  const elapsed = buckets.filter((x) => (byMonth ? x.key <= td.slice(0, 7) : x.key <= td)).length || buckets.length;
-  const sum = buckets.reduce((s, x) => s + x.v, 0);
-  const avg = sum / elapsed;
+  const todayStart = rangeOf(unit, td)[0];
+  const anchorStart = rangeOf(unit, S.anchor)[0];
+  let starts = [];
+  if (unit === 'year') {
+    const years = S.tx.map((x) => +x.date.slice(0, 4));
+    const last = Math.max(+td.slice(0, 4), +anchorStart.slice(0, 4));
+    const first = Math.min(last - 2, ...years, +anchorStart.slice(0, 4));
+    for (let y = first; y <= last; y++) starts.push(`${y}-01-01`);
+  } else {
+    // окно заканчивается текущим периодом; если пролистали дальше назад — выбранным
+    const endStart = anchorStart > todayStart || diffDays(anchorStart, todayStart) / { day: 1, week: 7, month: 30.4 }[unit] >= BAR_COUNT[unit] - 1 ? anchorStart : todayStart;
+    let d = endStart;
+    for (let i = 0; i < BAR_COUNT[unit]; i++) { starts.unshift(d); d = shiftAnchor(d, unit, -1); }
+  }
+  // пустое начало до первой траты не показываем — так столбики шире
+  if (S.tx.length) {
+    const firstKey = bucketKey(unit, S.tx.reduce((m, x) => (x.date < m ? x.date : m), '9999'));
+    const cut = firstKey < anchorStart ? firstKey : anchorStart;
+    const trimmed = starts.filter((x) => x >= cut);
+    if (trimmed.length) starts = trimmed;
+  }
+  return { unit, starts, nav: true, selected: starts.indexOf(anchorStart) };
+}
+
+function renderBars(cur) {
+  const { unit, starts, nav, selected = -1 } = barBuckets();
+  const lastEnd = unit === 'day' ? starts[starts.length - 1] : rangeOf(unit, starts[starts.length - 1])[1];
+  const buckets = starts.map((start) => ({ start, v: 0, label: bucketLabel(unit, start), full: bucketFull(unit, start) }));
+  const idx = new Map(starts.map((x, i) => [x, i]));
+  let src = txInRange([starts[0], lastEnd]);
+  if (S.catFilter) src = src.filter((x) => x.categoryId === S.catFilter);
+  for (const x of src) { const i = idx.get(bucketKey(unit, x.date)); if (i != null) buckets[i].v += txIn(x, cur); }
+
+  const titles = { day: 'by_days', week: 'by_weeks', month: 'by_months', year: 'by_years' };
+  $('#bars-title').textContent = t(titles[unit]);
+  const td = todayStr();
+  const elapsed = buckets.filter((x) => x.start <= td);
+  const avg = elapsed.reduce((s, x) => s + x.v, 0) / (elapsed.length || 1);
   const info = $('#bars-info');
-  const defaultInfo = sum ? t(byMonth ? 'avg_month' : 'avg_day', { v: fmtShort(avg, cur) }) : '';
+  const avgText = avg ? t(`avg_${unit}`, { v: fmtShort(avg, cur) }) : '';
+  const defaultInfo = selected >= 0 ? `${buckets[selected].full}: ${fmtShort(buckets[selected].v, cur)}` : avgText;
   info.textContent = defaultInfo;
 
   const W = Math.max(260, Math.round($('#bars').clientWidth || 340)), H = 150, top = 8, bottom = 18, n = buckets.length;
   const max = Math.max(...buckets.map((x) => x.v), 1);
-  const slot = W / n, bw = Math.max(2, slot - 2);
+  const slot = W / n, bw = Math.max(2, Math.min(slot - 2, 48));
   const y = (v) => top + (H - top - bottom) * (1 - v / max);
-  let svg = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(byMonth ? t('by_months') : t('by_days'))}">`;
+  const fillOf = (i) => (selected < 0 || i === selected ? 'var(--bar)' : 'var(--bar-dim)');
+  let svg = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(t(titles[unit]))}">`;
   svg += `<line class="grid" x1="0" x2="${W}" y1="${y(max)}" y2="${y(max)}"/>`;
+  const every = n > 20 ? 5 : n > 12 ? 2 : unit === 'week' ? 2 : 1;
   buckets.forEach((x, i) => {
     const h = H - bottom - y(x.v);
-    const bx = i * slot + 1;
+    const bx = i * slot + (slot - bw) / 2;
     if (x.v > 0) {
       const r = Math.min(4, bw / 2, h);
       const yy = y(x.v), base = H - bottom;
-      svg += `<path class="b-path" d="M${bx} ${base}V${yy + r}Q${bx} ${yy} ${bx + r} ${yy}H${bx + bw - r}Q${bx + bw} ${yy} ${bx + bw} ${yy + r}V${base}Z" fill="var(--bar)" data-i="${i}"/>`;
+      svg += `<path class="b-path" d="M${bx} ${base}V${yy + r}Q${bx} ${yy} ${bx + r} ${yy}H${bx + bw - r}Q${bx + bw} ${yy} ${bx + bw} ${yy + r}V${base}Z" fill="${fillOf(i)}" data-i="${i}"/>`;
     }
     svg += `<rect class="hit" x="${i * slot}" y="0" width="${slot}" height="${H}" data-i="${i}"/>`;
-    const every = n > 20 ? 5 : n > 12 ? 2 : 1;
-    if (i % every === 0 || n <= 12) svg += `<text x="${bx + bw / 2}" y="${H - 4}" text-anchor="middle">${esc(x.label)}</text>`;
+    // подписи считаем от правого края, чтобы текущий период всегда был подписан
+    if ((n - 1 - i) % every === 0) svg += `<text x="${bx + bw / 2}" y="${H - 4}" text-anchor="middle"${i === selected ? ' class="sel"' : ''}>${esc(x.label)}</text>`;
   });
-  if (sum && avg < max) svg += `<line class="avg" x1="0" x2="${W}" y1="${y(avg)}" y2="${y(avg)}"/>`;
+  if (avg && avg < max) svg += `<line class="avg" x1="0" x2="${W}" y1="${y(avg)}" y2="${y(avg)}"/>`;
   svg += `<line class="axis" x1="0" x2="${W}" y1="${H - bottom}" y2="${H - bottom}"/></svg>`;
   const box = $('#bars');
   box.innerHTML = svg;
@@ -606,6 +660,13 @@ function renderBars([a, b], list, cur) {
   box.querySelectorAll('.hit').forEach((h) => {
     h.addEventListener('click', () => {
       const i = +h.dataset.i;
+      if (nav) {
+        // переход к выбранному дню / неделе / месяцу / году
+        if (buckets[i].start > td) return;
+        S.anchor = buckets[i].start; S.txLimit = 60;
+        renderMain();
+        return;
+      }
       if (active === i) { active = null; info.textContent = defaultInfo; box.querySelectorAll('.b-path').forEach((p) => p.setAttribute('fill', 'var(--bar)')); return; }
       active = i;
       info.textContent = `${buckets[i].full}: ${fmt(buckets[i].v, cur)}`;

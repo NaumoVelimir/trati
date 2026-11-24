@@ -1,0 +1,247 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
+  <title>Траты</title>
+  <meta name="theme-color" content="#f6f6f4" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#0d0d0d" media="(prefers-color-scheme: dark)">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="Траты">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icons/icon-180.png">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div id="app">
+    <!-- ===== Обзор ===== -->
+    <main id="tab-main" class="tab active">
+      <header class="topbar">
+        <div class="seg" id="period-seg" role="tablist" aria-label="Период">
+          <button data-p="day">День</button>
+          <button data-p="week">Неделя</button>
+          <button data-p="month">Месяц</button>
+          <button data-p="year">Год</button>
+          <button data-p="custom">Период</button>
+        </div>
+        <div class="period-nav">
+          <button class="icon-btn" id="prev-period" aria-label="Предыдущий период">‹</button>
+          <button class="period-label" id="period-label"></button>
+          <button class="icon-btn" id="next-period" aria-label="Следующий период">›</button>
+          <button class="cur-chip" id="view-cur" aria-label="Валюта отчёта"></button>
+        </div>
+        <div class="custom-range hidden" id="custom-range">
+          <input type="date" id="range-from" aria-label="С">
+          <span>—</span>
+          <input type="date" id="range-to" aria-label="По">
+        </div>
+      </header>
+
+      <section class="card summary">
+        <div class="donut-wrap">
+          <svg id="donut" viewBox="0 0 200 200" role="img" aria-label="Траты по категориям"></svg>
+          <div class="donut-center" id="donut-center"></div>
+        </div>
+        <div class="delta" id="total-delta"></div>
+        <button class="link small rec-toggle hidden" id="rec-toggle"></button>
+      </section>
+
+      <section class="card">
+        <div class="card-head">
+          <h2>По категориям</h2>
+          <button class="link hidden" id="clear-filter">Сбросить фильтр</button>
+        </div>
+        <ul class="cat-list" id="cat-list"></ul>
+      </section>
+
+      <section class="card" id="bars-card">
+        <div class="card-head">
+          <h2 id="bars-title">По дням</h2>
+          <span class="muted small" id="bars-info"></span>
+        </div>
+        <div id="bars"></div>
+      </section>
+
+      <section class="card">
+        <div class="card-head"><h2 id="tx-title">Операции</h2></div>
+        <div id="tx-list"></div>
+      </section>
+      <div class="fab-spacer"></div>
+    </main>
+
+    <!-- ===== Конвертер ===== -->
+    <main id="tab-conv" class="tab">
+      <header class="page-head"><h1>Конвертер</h1></header>
+      <section class="card">
+        <div class="conv-input">
+          <input id="conv-amount" inputmode="decimal" placeholder="0" autocomplete="off">
+          <div class="seg small" id="conv-cur"></div>
+        </div>
+        <div id="conv-out" class="conv-out"></div>
+        <p class="muted small" id="conv-rates"></p>
+      </section>
+      <section class="card">
+        <h2>Шпаргалка</h2>
+        <table class="cheat" id="conv-cheat"></table>
+      </section>
+    </main>
+
+    <!-- ===== Ещё ===== -->
+    <main id="tab-more" class="tab">
+      <header class="page-head"><h1>Ещё</h1></header>
+
+      <section class="card">
+        <div class="card-head">
+          <h2>Регулярные траты</h2>
+          <button class="link" id="add-rec">+ Добавить</button>
+        </div>
+        <p class="muted small">Добавляются в траты автоматически в нужный день.</p>
+        <ul class="rows" id="rec-list"></ul>
+      </section>
+
+      <section class="card">
+        <div class="card-head">
+          <h2>Категории</h2>
+          <button class="link" id="add-cat">+ Добавить</button>
+        </div>
+        <ul class="rows" id="cat-manage"></ul>
+      </section>
+
+      <section class="card">
+        <h2>Валюты и курс</h2>
+        <label class="field">Валюта ввода по умолчанию
+          <div class="seg small" id="default-cur"></div>
+        </label>
+        <div class="rates">
+          <label class="field">1 USD = ₫<input id="rate-vnd" inputmode="decimal"></label>
+          <label class="field">1 USD = ₽<input id="rate-rub" inputmode="decimal"></label>
+        </div>
+        <p class="muted small" id="rates-info"></p>
+        <button class="btn" id="refresh-rates">Обновить курс</button>
+      </section>
+
+      <section class="card">
+        <h2>Выгрузка для анализа</h2>
+        <p class="muted small">CSV со всеми тратами за период. Отправьте его на Mac (AirDrop или Telegram) и положите в папку <code>exports</code>.</p>
+        <div class="btn-col">
+          <button class="btn primary" id="exp-14">Последние 14 дней</button>
+          <button class="btn" id="exp-period">Выбранный на «Обзоре» период</button>
+          <button class="btn" id="exp-all">Все траты</button>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>Резервная копия и импорт</h2>
+        <p class="muted small">Данные хранятся только на этом устройстве. Делайте копию хотя бы раз в месяц.</p>
+        <div class="btn-col">
+          <button class="btn" id="backup">Сохранить резервную копию (JSON)</button>
+          <button class="btn" id="restore">Восстановить из копии</button>
+          <button class="btn" id="import-mm">Импорт из Money Manager (Excel/CSV)</button>
+        </div>
+        <input type="file" id="file-restore" accept=".json,application/json" hidden>
+        <input type="file" id="file-mm" accept=".xls,.xlsx,.csv,.tsv,text/csv" hidden>
+        <p class="muted small" id="storage-info"></p>
+      </section>
+
+      <section class="card">
+        <button class="btn danger" id="wipe">Удалить все данные</button>
+      </section>
+      <div class="fab-spacer"></div>
+    </main>
+
+    <button class="fab" id="fab" aria-label="Добавить трату">+</button>
+
+    <nav class="tabbar">
+      <button data-tab="main" class="active"><span>◔</span>Обзор</button>
+      <button data-tab="conv"><span>⇄</span>Конвертер</button>
+      <button data-tab="more"><span>⋯</span>Ещё</button>
+    </nav>
+  </div>
+
+  <!-- ===== Шторки ===== -->
+  <div class="sheet-backdrop hidden" id="backdrop"></div>
+
+  <div class="sheet hidden" id="sheet-tx" role="dialog" aria-label="Трата">
+    <div class="sheet-grip"></div>
+    <div class="amount-row">
+      <input id="tx-amount" inputmode="decimal" placeholder="0" autocomplete="off" aria-label="Сумма">
+      <button class="btn small" id="tx-000">000</button>
+    </div>
+    <div class="amount-hint muted small" id="tx-amount-hint"></div>
+    <div class="seg small" id="tx-cur"></div>
+    <div class="row-wrap">
+      <div class="chips" id="tx-date-chips">
+        <button data-d="0">Сегодня</button>
+        <button data-d="-1">Вчера</button>
+      </div>
+      <input type="date" id="tx-date" aria-label="Дата">
+    </div>
+    <input id="tx-note" placeholder="Комментарий (необязательно)" autocomplete="off">
+    <p class="muted small" id="tx-hint">Нажмите категорию — трата сохранится</p>
+    <div class="cat-grid" id="tx-cats"></div>
+    <div class="sheet-actions hidden" id="tx-edit-actions">
+      <button class="btn danger" id="tx-delete">Удалить</button>
+      <button class="btn primary" id="tx-save">Сохранить</button>
+    </div>
+  </div>
+
+  <div class="sheet hidden" id="sheet-cat" role="dialog" aria-label="Категория">
+    <div class="sheet-grip"></div>
+    <h2 id="cat-sheet-title">Категория</h2>
+    <div class="cat-edit-row">
+      <input id="cat-emoji" class="emoji-input" maxlength="4" aria-label="Иконка">
+      <input id="cat-name" placeholder="Название" autocomplete="off">
+    </div>
+    <div class="swatches" id="cat-colors"></div>
+    <div class="sheet-actions">
+      <button class="btn" id="cat-archive">В архив</button>
+      <button class="btn primary" id="cat-save">Сохранить</button>
+    </div>
+    <button class="btn danger ghost hidden" id="cat-delete">Удалить категорию</button>
+  </div>
+
+  <div class="sheet hidden" id="sheet-rec" role="dialog" aria-label="Регулярная трата">
+    <div class="sheet-grip"></div>
+    <h2 id="rec-sheet-title">Регулярная трата</h2>
+    <input id="rec-name" placeholder="Название (например, Аренда)" autocomplete="off">
+    <div class="amount-row">
+      <input id="rec-amount" inputmode="decimal" placeholder="Сумма" autocomplete="off">
+      <button class="btn small" id="rec-000">000</button>
+    </div>
+    <div class="seg small" id="rec-cur"></div>
+    <label class="field">Категория<select id="rec-cat"></select></label>
+    <div class="rec-freq">
+      <span>Каждые</span>
+      <input id="rec-every" inputmode="numeric" value="1" aria-label="Интервал">
+      <select id="rec-unit">
+        <option value="month">мес.</option>
+        <option value="week">нед.</option>
+        <option value="year">год</option>
+      </select>
+    </div>
+    <label class="field">Следующее списание<input type="date" id="rec-next"></label>
+    <label class="check"><input type="checkbox" id="rec-active" checked> Активна</label>
+    <div class="sheet-actions">
+      <button class="btn danger" id="rec-delete">Удалить</button>
+      <button class="btn primary" id="rec-save">Сохранить</button>
+    </div>
+  </div>
+
+  <div class="sheet hidden" id="sheet-import" role="dialog" aria-label="Импорт">
+    <div class="sheet-grip"></div>
+    <h2>Импорт из Money Manager</h2>
+    <div id="import-preview"></div>
+    <div class="sheet-actions">
+      <button class="btn" id="import-cancel">Отмена</button>
+      <button class="btn primary" id="import-ok">Импортировать</button>
+    </div>
+  </div>
+
+  <div class="toast hidden" id="toast"><span id="toast-text"></span><button id="toast-action" class="link"></button></div>
+
+  <script src="app.js" type="module"></script>
+</body>
+</html>

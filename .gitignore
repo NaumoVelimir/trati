@@ -1,0 +1,7 @@
+# личные данные не публикуем
+exports/*.csv
+exports/analyses/
+*.json.bak
+traty_backup_*.json
+.DS_Store
+.claude/settings.local.json

@@ -1328,7 +1328,8 @@ function bind() {
     const p = e.target.closest('button')?.dataset.p;
     if (!p) return;
     if (p === 'custom' && !S.from) { const [a, b] = currentRange(); S.from = a; S.to = b > todayStr() ? todayStr() : b; }
-    S.period = p; S.txLimit = 60;
+    // при смене периода всегда показываем текущий: сегодня, эту неделю, этот месяц, этот год
+    S.period = p; S.anchor = todayStr(); S.txLimit = 60;
     renderMain();
   });
   $('#prev-period').onclick = () => { S.anchor = shiftAnchor(S.anchor, S.period, -1); renderMain(); };
@@ -1400,8 +1401,11 @@ function bind() {
   };
 
   // при возвращении в приложение — новый день, регулярные траты, курс
+  let openedOn = todayStr();
   document.addEventListener('visibilitychange', async () => {
     if (document.visibilityState !== 'visible') return;
+    // приложение пролежало открытым до следующего дня — переходим на новый «сегодня»
+    if (openedOn !== todayStr()) { openedOn = todayStr(); S.anchor = openedOn; }
     await runRecurring();
     renderAll();
     if (S.settings.ratesSource !== 'manual' && S.settings.ratesDate !== todayStr()) refreshRates(false);

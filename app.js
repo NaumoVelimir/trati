@@ -14,11 +14,15 @@ const RATE_API = [
   'https://cdn.jsdelivr.net/npm/@fawazahmed0/currency-api@latest/v1/currencies/usd.min.json',
   'https://latest.currency-api.pages.dev/v1/currencies/usd.min.json',
 ];
+// [иконка, название, слот цвета]. Цвета подобраны так, чтобы у самых крупных категорий они не совпадали.
 const DEFAULT_CATS = [
-  ['🛒', 'Продукты'], ['🍜', 'Кафе и рестораны'], ['☕', 'Кофе'], ['🛵', 'Транспорт'],
-  ['🏠', 'Жильё'], ['📱', 'Связь и подписки'], ['💊', 'Здоровье'], ['🎉', 'Развлечения'],
-  ['👕', 'Одежда'], ['🛍️', 'Покупки'], ['✈️', 'Путешествия'], ['🎁', 'Подарки'], ['📦', 'Другое'],
+  ['🛒', 'Продукты', 0], ['🍜', 'Кафе и рестораны', 1], ['☕', 'Кофе', 3], ['🥡', 'Доставка', 1],
+  ['🛵', 'Транспорт', 0], ['🔑', 'Аренда', 2], ['🏠', 'Дом', 6], ['📱', 'Подписки', 7],
+  ['💊', 'Здоровье', 5], ['🎉', 'Развлечения', 4], ['👕', 'Одежда', 7], ['🇬🇧', 'Английский', 3],
+  ['🏋️', 'Спорт', 4], ['🚬', 'Сиги', 6], ['🎁', 'Подарки', 4], ['✈️', 'Путешествия', 0], ['📦', 'Другое', 5],
 ];
+// Первый набор категорий (до 24.11.2026). Если пользователь его ещё не трогал — заменяем на новый.
+const OLD_DEFAULT_NAMES = ['Продукты', 'Кафе и рестораны', 'Кофе', 'Транспорт', 'Жильё', 'Связь и подписки', 'Здоровье', 'Развлечения', 'Одежда', 'Покупки', 'Путешествия', 'Подарки', 'Другое'];
 const DEFAULT_SETTINGS = {
   inputCur: 'VND',
   viewCur: 'RUB',
@@ -863,15 +867,22 @@ function loadSheetJS() {
     document.head.append(s);
   });
 }
+// Поддерживаются выгрузки двух разных «Money Manager»:
+//  - Realbyte: Period | Category | Subcategory | Note | VND | Income/Expense | Description | Amount | Currency
+//  - «Money Manager: expense tracker»: Date and time | Category | Account | Amount in default currency |
+//    Default currency | ... | Transaction amount in transaction currency | Transaction currency | Tags | Comment
 const H = {
-  date: /^(period|date|дата|период|время|date\/time)$/i,
+  date: /^(period|date|дата|период|время|date\/time|date and time|дата и время)$/i,
   category: /^(category|категория)$/i,
   sub: /^(subcategory|подкатегория)$/i,
-  note: /^(note|заметка|примечание|memo|контент|содержание)$/i,
+  note: /^(note|заметка|примечание|memo|контент|содержание|comment|комментарий)$/i,
   desc: /^(description|описание)$/i,
+  tags: /^(tags|теги|метки)$/i,
   type: /^(income\/expense|доход\/расход|доходы\/расходы|type|тип)$/i,
-  amount: /^(amount|сумма)$/i,
-  currency: /^(currency|валюта)$/i,
+  amount: /^(amount|сумма|transaction amount in transaction currency|сумма в валюте операции)$/i,
+  currency: /^(currency|валюта|transaction currency|валюта операции)$/i,
+  defAmount: /^(amount in default currency|сумма в основной валюте)$/i,
+  defCurrency: /^(default currency|основная валюта)$/i,
 };
 function findCols(header) {
   const cols = {};
@@ -881,6 +892,22 @@ function findCols(header) {
     if (cols.mainAmount == null && /^[A-Z]{3}$/.test(s) && s !== 'ID') cols.mainAmount = i; // колонка «VND»/«USD» — сумма в основной валюте
   });
   return cols;
+}
+// Названия категорий из старого приложения → категории «Трат».
+const CAT_ALIASES = {
+  groceries: 'Продукты', food: 'Продукты', cafe: 'Кафе и рестораны', restaurants: 'Кафе и рестораны', 'eating out': 'Кафе и рестораны',
+  coffee: 'Кофе', transportation: 'Транспорт', transport: 'Транспорт', taxi: 'Транспорт', home: 'Дом', household: 'Дом',
+  rent: 'Аренда', health: 'Здоровье', leisure: 'Развлечения', entertainment: 'Развлечения', clothes: 'Одежда', clothing: 'Одежда',
+  gifts: 'Подарки', gift: 'Подарки', workout: 'Спорт', sport: 'Спорт', sports: 'Спорт', fitness: 'Спорт', travel: 'Путешествия',
+  subscriptions: 'Подписки', education: 'Образование', delivery: 'Доставка', other: 'Другое', others: 'Другое',
+  'связь и подписки': 'Подписки', 'жильё': 'Аренда', 'жилье': 'Аренда',
+};
+function mapCatName(name) {
+  const n = String(name || '').trim();
+  if (!n) return 'Другое';
+  // точное совпадение с существующей категорией важнее псевдонима
+  if (S.cats.some((c) => c.name.toLowerCase() === n.toLowerCase())) return S.cats.find((c) => c.name.toLowerCase() === n.toLowerCase()).name;
+  return CAT_ALIASES[n.toLowerCase()] || n;
 }
 function toYmd(v) {
   if (v instanceof Date && !isNaN(v)) return ymd(v);
@@ -895,10 +922,12 @@ function toYmd(v) {
 async function importMM(file) {
   try {
     const XLSX = await loadSheetJS();
-    const wb = XLSX.read(await file.arrayBuffer(), { type: 'array', cellDates: true });
-    const ws = wb.Sheets[wb.SheetNames[0]];
+    // даты читаем как числа Excel и переводим сами: так не бывает сдвига на день из-за часового пояса
+    const wb = XLSX.read(await file.arrayBuffer(), { type: 'array', cellDates: false });
+    const sheetName = wb.SheetNames.find((n) => /expense|расход/i.test(n)) || wb.SheetNames[0];
+    const ws = wb.Sheets[sheetName];
     const rows = XLSX.utils.sheet_to_json(ws, { header: 1, raw: true, defval: '' });
-    const hi = rows.findIndex((r) => { const c = findCols(r); return c.date != null && c.category != null && (c.amount != null || c.mainAmount != null); });
+    const hi = rows.findIndex((r) => { const c = findCols(r); return c.date != null && c.category != null && (c.amount != null || c.mainAmount != null || c.defAmount != null); });
     if (hi < 0) throw new Error('Не нашёл колонки «дата», «категория», «сумма»');
     const cols = findCols(rows[hi]);
     const items = [];
@@ -910,6 +939,11 @@ async function importMM(file) {
       const date = toYmd(r[cols.date]);
       let amount = Math.abs(parseAmount(r[cols.amount ?? cols.mainAmount]));
       let currency = cols.currency != null ? String(r[cols.currency]).trim().toUpperCase() : '';
+      if ((!(amount > 0) || !CUR[currency]) && cols.defAmount != null) {
+        // сумма в валюте операции не заполнена — берём сумму в основной валюте
+        amount = Math.abs(parseAmount(r[cols.defAmount]));
+        currency = cols.defCurrency != null ? String(r[cols.defCurrency]).trim().toUpperCase() : '';
+      }
       if (!CUR[currency]) {
         // нет валюты или она незнакомая — берём сумму в основной валюте файла
         const main = cols.mainAmount != null ? String(rows[hi][cols.mainAmount]).trim().toUpperCase() : '';
@@ -918,8 +952,9 @@ async function importMM(file) {
       }
       if (!date || !(amount > 0)) { bad++; continue; }
       const sub = cols.sub != null ? String(r[cols.sub]).trim() : '';
-      const note = [cols.note != null ? String(r[cols.note]).trim() : '', cols.desc != null ? String(r[cols.desc]).trim() : ''].filter(Boolean).join(' — ');
-      items.push({ date, amount: roundCur(amount, currency), currency, catName: String(r[cols.category]).trim() || 'Другое', note: [sub, note].filter(Boolean).join(': ') });
+      const note = [cols.note, cols.desc, cols.tags].map((c) => (c != null ? String(r[c]).trim() : '')).filter(Boolean).join(' — ');
+      const srcCat = String(r[cols.category]).trim();
+      items.push({ date, amount: roundCur(amount, currency), currency, srcCat, catName: mapCatName(srcCat), note: [sub, note].filter(Boolean).join(': ') });
     }
     if (!items.length) throw new Error('В файле не нашлось расходов');
     // дубликаты: такие же дата+сумма+категория+заметка уже есть
@@ -935,7 +970,7 @@ async function importMM(file) {
     $('#import-preview').innerHTML = `
       <p>Найдено расходов: <b>${items.length}</b>${items.length !== fresh.length ? `, из них новых: <b>${fresh.length}</b> (остальные уже есть)` : ''}.</p>
       ${fresh.length ? `<p>Период: ${esc(short(dates[0], true))} – ${esc(short(dates[dates.length - 1], true))}. Валюты: ${esc(Object.entries(byCur).map(([c, n]) => `${c} (${n})`).join(', '))}.</p>` : ''}
-      ${newCats.length ? `<p>Будут созданы категории: ${esc(newCats.join(', '))}.</p>` : ''}
+      ${catMapHtml(fresh, newCats)}
       ${skippedIncome ? `<p class="muted small">Пропущено доходов и переводов: ${skippedIncome}.</p>` : ''}
       ${bad ? `<p class="warn small">Не удалось разобрать строк: ${bad}.</p>` : ''}
       <table>${fresh.slice(0, 5).map((i) => `<tr><td>${esc(i.date)}</td><td>${esc(i.catName)}</td><td>${esc(i.note)}</td><td style="text-align:right">${esc(fmt(i.amount, i.currency))}</td></tr>`).join('')}</table>`;
@@ -944,6 +979,17 @@ async function importMM(file) {
   } catch (e) {
     toast(e.message || 'Не удалось прочитать файл');
   }
+}
+// Таблица «категория в файле → категория здесь», чтобы перед импортом было видно, куда что попадёт.
+function catMapHtml(items, newCats) {
+  const m = new Map();
+  for (const i of items) { const k = `${i.srcCat}→${i.catName}`; const e = m.get(k) || { src: i.srcCat, dst: i.catName, n: 0 }; e.n++; m.set(k, e); }
+  const rows = [...m.values()].sort((a, b) => b.n - a.n).map((e) => {
+    const isNew = newCats.includes(e.dst);
+    const c = S.cats.find((x) => x.name === e.dst);
+    return `<tr><td>${esc(e.src || '—')}</td><td>→ ${esc((c?.emoji || guessEmoji(e.dst)) + ' ' + e.dst)}${isNew ? ' <span class="muted">(новая)</span>' : ''}</td><td style="text-align:right">${e.n}</td></tr>`;
+  });
+  return `<p class="small">Категории:</p><table>${rows.join('')}</table><p></p>`;
 }
 async function confirmImport() {
   if (!pendingImport) return;
@@ -968,7 +1014,8 @@ function guessEmoji(name) {
   const n = name.toLowerCase();
   const map = [
     [/food|еда|продукт|grocer|супермаркет/, '🛒'], [/cafe|кафе|ресторан|restaurant|eat|обед|ужин/, '🍜'], [/coffee|кофе/, '☕'],
-    [/transport|транспорт|taxi|такси|grab|bike|байк|бензин|fuel/, '🛵'], [/rent|аренд|жиль|house|home|квартир/, '🏠'],
+    [/delivery|доставк/, '🥡'], [/сиг|cigar|smok|курен/, '🚬'], [/англ|english|язык|language/, '🇬🇧'],
+    [/transport|транспорт|taxi|такси|grab|bike|байк|бензин|fuel/, '🛵'], [/rent|аренд|квартир/, '🔑'], [/жиль|house|home|дом/, '🏠'],
     [/phone|связь|интернет|подпис|subscr/, '📱'], [/health|здоров|аптек|врач|medic/, '💊'], [/fun|развлеч|entertain|кино|бар|party/, '🎉'],
     [/cloth|одежд/, '👕'], [/shop|покуп/, '🛍️'], [/travel|путеш|отпуск|trip|отел|hotel/, '✈️'], [/gift|подар/, '🎁'],
     [/beauty|красот|салон/, '💅'], [/sport|спорт|gym|зал/, '🏋️'], [/educat|образов|курс|книг|book/, '📚'], [/pet|питом|кот|собак/, '🐾'],
@@ -1077,10 +1124,24 @@ function bind() {
 }
 
 async function seedCategories() {
-  const cats = DEFAULT_CATS.map(([emoji, name], i) => ({ id: uid(), emoji, name, color: i % SLOTS, order: i, archived: false }));
+  const cats = DEFAULT_CATS.map(([emoji, name, color], i) => ({ id: uid(), emoji, name, color, order: i, archived: false }));
   await dbPutMany('cats', cats);
   S.settings.catsSeeded = true;
+  S.settings.catsVersion = 2;
   await saveSettings();
+}
+// Набор категорий v2. Старый набор заменяется, только если трат ещё нет и категории никто не менял.
+async function migrateCategories() {
+  if (S.settings.catsVersion >= 2) return;
+  const untouched = !S.tx.length && !S.rec.length && S.cats.length === OLD_DEFAULT_NAMES.length && S.cats.every((c) => OLD_DEFAULT_NAMES.includes(c.name) && !c.archived);
+  if (untouched) {
+    await dbClear('cats');
+    await seedCategories();
+    S.cats = await dbAll('cats');
+  } else {
+    S.settings.catsVersion = 2;
+    await saveSettings();
+  }
 }
 
 async function init() {
@@ -1088,6 +1149,7 @@ async function init() {
   S.settings = { ...DEFAULT_SETTINGS, ...((await kvGet('settings')) || {}) };
   if (!S.settings.catsSeeded) await seedCategories();
   await loadAll();
+  await migrateCategories();
   bind();
   await runRecurring();
   renderAll();

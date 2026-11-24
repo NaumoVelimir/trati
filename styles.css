@@ -229,7 +229,8 @@ h2 { font-size: 17px; margin: 0 0 10px; letter-spacing: -0.01em; }
 .fab {
   position: fixed; right: max(16px, calc(50vw - 260px + 16px)); bottom: calc(76px + var(--safe-b));
   width: 60px; height: 60px; border-radius: 50%; background: var(--accent); color: var(--accent-ink);
-  font-size: 34px; line-height: 1; box-shadow: 0 6px 20px rgba(42, 120, 214, .45); z-index: 10;
+  display: flex; align-items: center; justify-content: center;
+  box-shadow: 0 6px 20px rgba(42, 120, 214, .45); z-index: 10;
 }
 .fab:active { transform: scale(.94); }
 .tabbar {

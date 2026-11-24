@@ -438,6 +438,18 @@ function sumBy(list, cur) {
   return { total, byCat: m };
 }
 
+// Перерисовка с привязкой к блоку, который сейчас на экране: высота блоков выше меняется
+// (другое число категорий, напоминания), а смотреть пользователь продолжает в то же место.
+function rerender() {
+  const topEdge = document.querySelector('#tab-main .topbar').getBoundingClientRect().bottom;
+  const cards = [...document.querySelectorAll('#tab-main .card')].filter((c) => !c.classList.contains('hidden'));
+  // якорь — первый блок, который начинается на экране; если такого нет (длинный блок на весь экран) — тот, что под шапкой
+  const anchor = cards.find((c) => { const r = c.getBoundingClientRect(); return r.top >= topEdge - 4 && r.top < window.innerHeight; })
+    || cards.find((c) => c.getBoundingClientRect().bottom > topEdge + 8);
+  const before = anchor?.getBoundingClientRect().top;
+  renderMain();
+  if (anchor && !anchor.classList.contains('hidden') && window.scrollY > 0) window.scrollBy(0, anchor.getBoundingClientRect().top - before);
+}
 function renderMain() {
   const cur = S.settings.viewCur;
   $('#view-cur').textContent = CUR[cur].sym;
@@ -488,7 +500,7 @@ function renderMain() {
       <span class="amt">${esc(fmt(v, cur))}</span>
       <span class="meter"><i style="width:${(v / max) * 100}%;background:${color(cat?.color)}"></i></span>
       <span class="meta">${delta}${total ? Math.round((v / total) * 100) : 0}%</span>`);
-    li.onclick = () => { S.catFilter = S.catFilter === id ? null : id; S.txLimit = 60; renderMain(); };
+    li.onclick = () => { S.catFilter = S.catFilter === id ? null : id; S.txLimit = 60; rerender(); };
     ul.append(li);
   }
   $('#clear-filter').classList.toggle('hidden', !S.catFilter);
@@ -538,7 +550,7 @@ function renderDonut(cats, total, cur) {
     path.addEventListener('click', (e) => {
       e.stopPropagation();
       if (s.id === '__other') { document.querySelector(`#cat-list li:nth-child(${CHART_MAX + 1})`)?.scrollIntoView({ behavior: 'smooth', block: 'center' }); return; }
-      S.catFilter = S.catFilter === s.id ? null : s.id; S.txLimit = 60; renderMain();
+      S.catFilter = S.catFilter === s.id ? null : s.id; S.txLimit = 60; rerender();
     });
     const title = document.createElementNS('http://www.w3.org/2000/svg', 'title');
     title.textContent = `${catName(s.cat)}: ${fmt(s.v, cur)}`;
@@ -664,7 +676,7 @@ function renderBars(cur) {
         // переход к выбранному дню / неделе / месяцу / году
         if (buckets[i].start > td) return;
         S.anchor = buckets[i].start; S.txLimit = 60;
-        renderMain();
+        rerender();
         return;
       }
       if (active === i) { active = null; info.textContent = defaultInfo; box.querySelectorAll('.b-path').forEach((p) => p.setAttribute('fill', 'var(--bar)')); return; }
@@ -1391,20 +1403,20 @@ function bind() {
     if (p === 'custom' && !S.from) { const [a, b] = currentRange(); S.from = a; S.to = b > todayStr() ? todayStr() : b; }
     // при смене периода всегда показываем текущий: сегодня, эту неделю, этот месяц, этот год
     S.period = p; S.anchor = todayStr(); S.txLimit = 60;
-    renderMain();
+    rerender();
   });
-  $('#prev-period').onclick = () => { S.anchor = shiftAnchor(S.anchor, S.period, -1); renderMain(); };
-  $('#next-period').onclick = () => { S.anchor = shiftAnchor(S.anchor, S.period, 1); renderMain(); };
-  $('#period-label').onclick = () => { S.anchor = todayStr(); renderMain(); };
-  $('#range-from').onchange = (e) => { if (e.target.value) { S.from = e.target.value; if (S.to < S.from) S.to = S.from; renderMain(); } };
-  $('#range-to').onchange = (e) => { if (e.target.value) { S.to = e.target.value; if (S.from > S.to) S.from = S.to; renderMain(); } };
+  $('#prev-period').onclick = () => { S.anchor = shiftAnchor(S.anchor, S.period, -1); rerender(); };
+  $('#next-period').onclick = () => { S.anchor = shiftAnchor(S.anchor, S.period, 1); rerender(); };
+  $('#period-label').onclick = () => { S.anchor = todayStr(); rerender(); };
+  $('#range-from').onchange = (e) => { if (e.target.value) { S.from = e.target.value; if (S.to < S.from) S.to = S.from; rerender(); } };
+  $('#range-to').onchange = (e) => { if (e.target.value) { S.to = e.target.value; if (S.from > S.to) S.from = S.to; rerender(); } };
   $('#view-cur').onclick = async () => {
     S.settings.viewCur = CUR_ORDER[(CUR_ORDER.indexOf(S.settings.viewCur) + 1) % CUR_ORDER.length];
-    await saveSettings(); renderMain();
+    await saveSettings(); rerender();
   };
-  $('#clear-filter').onclick = () => { S.catFilter = null; renderMain(); };
-  $('#rec-toggle').onclick = async () => { S.settings.hideRec = !S.settings.hideRec; await saveSettings(); renderMain(); };
-  $('#donut').addEventListener('click', () => { if (S.catFilter) { S.catFilter = null; renderMain(); } });
+  $('#clear-filter').onclick = () => { S.catFilter = null; rerender(); };
+  $('#rec-toggle').onclick = async () => { S.settings.hideRec = !S.settings.hideRec; await saveSettings(); rerender(); };
+  $('#donut').addEventListener('click', () => { if (S.catFilter) { S.catFilter = null; rerender(); } });
   let rz; window.addEventListener('resize', () => { clearTimeout(rz); rz = setTimeout(renderMain, 150); });
 
   $('#fab').onclick = () => openTxSheet(null);

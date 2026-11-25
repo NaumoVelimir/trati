@@ -64,7 +64,7 @@ const T = {
     backup_title: 'Backup and import', backup_hint: 'Data is stored only on this device. Make a backup at least once a month.',
     backup_save: 'Save backup (JSON)', backup_restore: 'Restore from backup', import_mm: 'Import from Money Manager (Excel/CSV)',
     wipe: 'Delete all data', add_expense: 'Add expense', amount: 'Amount', today: 'Today', yesterday: 'Yesterday', date: 'Date',
-    note_ph: 'Comment (optional)', tap_category: 'Tap a category to save', delete: 'Delete', save: 'Save', icon: 'Icon',
+    note_ph: 'Comment (optional)', tap_category: 'Pick a category, then Save', close: 'Close', delete: 'Delete', save: 'Save', icon: 'Icon',
     name: 'Name', cat_delete: 'Delete category', rec_name_ph: 'Name (e.g. Rent)',
     rec_variable: 'Amount changes — remind me instead of adding', category: 'Category', every: 'Every', interval: 'Interval',
     unit_month: 'month(s)', unit_week: 'week(s)', unit_year: 'year(s)', rec_next: 'Next payment', active: 'Active',
@@ -122,7 +122,7 @@ const T = {
     backup_title: 'Резервная копия и импорт', backup_hint: 'Данные хранятся только на этом устройстве. Делайте копию хотя бы раз в месяц.',
     backup_save: 'Сохранить резервную копию (JSON)', backup_restore: 'Восстановить из копии', import_mm: 'Импорт из Money Manager (Excel/CSV)',
     wipe: 'Удалить все данные', add_expense: 'Добавить трату', amount: 'Сумма', today: 'Сегодня', yesterday: 'Вчера', date: 'Дата',
-    note_ph: 'Комментарий (необязательно)', tap_category: 'Нажмите категорию — трата сохранится', delete: 'Удалить', save: 'Сохранить',
+    note_ph: 'Комментарий (необязательно)', tap_category: 'Выберите категорию и нажмите «Сохранить»', close: 'Закрыть', delete: 'Удалить', save: 'Сохранить',
     icon: 'Иконка', name: 'Название', cat_delete: 'Удалить категорию', rec_name_ph: 'Название (например, Аренда)',
     rec_variable: 'Сумма меняется — напоминать, а не добавлять', category: 'Категория', every: 'Каждые', interval: 'Интервал',
     unit_month: 'мес.', unit_week: 'нед.', unit_year: 'год', rec_next: 'Следующее списание', active: 'Активна',
@@ -414,6 +414,38 @@ function closeSheet() {
   if (openSheetEl) openSheetEl.classList.add('hidden');
   openSheetEl = null;
   $('#backdrop').classList.add('hidden');
+}
+
+// Свайп вниз закрывает шторку: тянуть можно, когда она прокручена до верха
+function swipeToClose(sh) {
+  let y0 = null, dy = 0, drag = false;
+  sh.addEventListener('touchstart', (e) => {
+    if (e.touches.length !== 1 || sh.scrollTop > 0) { y0 = null; return; }
+    y0 = e.touches[0].clientY; dy = 0; drag = false;
+  }, { passive: true });
+  sh.addEventListener('touchmove', (e) => {
+    if (y0 == null) return;
+    dy = e.touches[0].clientY - y0;
+    if (!drag) {
+      if (dy < -4 || sh.scrollTop > 0) { y0 = null; return; }  // тянут вверх — обычная прокрутка
+      if (dy < 8) return;
+      drag = true; sh.style.transition = 'none';
+    }
+    e.preventDefault();
+    sh.style.transform = `translateY(${Math.max(0, dy)}px)`;
+  }, { passive: false });
+  const end = () => {
+    if (y0 == null) return;
+    y0 = null;
+    if (!drag) return;
+    drag = false;
+    sh.style.transition = 'transform .18s ease-out';
+    if (dy > 110) { document.activeElement?.blur(); closeSheet(); }
+    sh.style.transform = '';
+    setTimeout(() => (sh.style.transition = ''), 200);
+  };
+  sh.addEventListener('touchend', end);
+  sh.addEventListener('touchcancel', end);
 }
 
 function applyI18n() {
@@ -754,11 +786,20 @@ function openTxSheet(x, prefill) {
   segment($('#tx-cur'), curItems(), txState.currency, (v) => { txState.currency = v; updateAmountHint(); });
   updateTxDate();
   $('#tx-hint').classList.toggle('hidden', !!x);
-  $('#tx-edit-actions').classList.toggle('hidden', !x);
+  $('#tx-delete').classList.toggle('hidden', !x);
   renderTxCats();
   updateAmountHint();
+  updateTxSave();
   openSheet('#sheet-tx');
-  if (!x) setTimeout(() => { const a = $('#tx-amount'); a.focus(); a.select(); }, 50);
+  // iOS открывает клавиатуру только при фокусе синхронно в обработчике нажатия — без setTimeout
+  if (!x) { const a = $('#tx-amount'); a.focus({ preventScroll: true }); a.select(); }
+}
+// Кнопка «Сохранить»: у новой траты показывает выбранную категорию, без категории — приглушена
+function updateTxSave() {
+  const b = $('#tx-save');
+  const c = catById(txState.categoryId);
+  b.textContent = !txEdit && c ? `${t('save')} · ${c.emoji} ${catName(c)}` : t('save');
+  b.classList.toggle('dim', !c);
 }
 function renderTxCats() {
   const grid = $('#tx-cats');
@@ -769,10 +810,12 @@ function renderTxCats() {
   for (const c of cats) {
     const b = el('button', c.id === txState.categoryId ? 'on' : '', `<span class="e">${esc(c.emoji)}</span><span class="n">${esc(catName(c))}</span>`);
     b.type = 'button';
+    // выбор категории не сохраняет трату — сохраняет кнопка «Сохранить» (защита от промаха)
     b.onclick = () => {
       txState.categoryId = c.id;
-      if (txEdit) { grid.querySelectorAll('button').forEach((y) => y.classList.remove('on')); b.classList.add('on'); }
-      else saveTx();
+      grid.querySelectorAll('button').forEach((y) => y.classList.remove('on'));
+      b.classList.add('on');
+      updateTxSave();
     };
     grid.append(b);
   }
@@ -1421,6 +1464,8 @@ function bind() {
 
   $('#fab').onclick = () => openTxSheet(null);
   $('#backdrop').onclick = closeSheet;
+  document.querySelectorAll('.sheet-x').forEach((b) => (b.onclick = closeSheet));
+  document.querySelectorAll('.sheet').forEach(swipeToClose);
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeSheet(); });
   document.querySelectorAll('.tabbar button').forEach((b) => (b.onclick = () => switchTab(b.dataset.tab)));
 

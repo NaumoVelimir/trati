@@ -259,12 +259,19 @@ h2 { font-size: 17px; margin: 0 0 10px; letter-spacing: -0.01em; }
   animation: up .2s ease-out;
 }
 @keyframes up { from { transform: translateY(30px); opacity: 0; } to { transform: none; opacity: 1; } }
-.sheet-grip { width: 40px; height: 5px; border-radius: 3px; background: var(--axis); margin: 2px auto 6px; flex: none; }
+.sheet-head { position: relative; flex: none; height: 30px; margin: -4px 0 -4px; }
+.sheet-grip { position: absolute; left: 50%; top: 6px; transform: translateX(-50%); width: 40px; height: 5px; border-radius: 3px; background: var(--axis); }
+.sheet-x {
+  position: absolute; right: -6px; top: -2px; width: 34px; height: 34px; border-radius: 50%;
+  display: grid; place-items: center; font-size: 22px; line-height: 1; color: var(--ink-2); background: var(--surface-2);
+}
+.sheet-x:active { opacity: .6; }
 .sheet h2 { margin: 0; }
 .amount-row { display: flex; gap: 8px; align-items: center; }
 #tx-amount, #conv-amount {
   font-size: 36px; font-weight: 700; letter-spacing: -0.02em; text-align: center; padding: 10px; font-variant-numeric: tabular-nums;
 }
+#tx-amount:focus::placeholder, #conv-amount:focus::placeholder { color: transparent; }
 .amount-hint { text-align: center; min-height: 18px; margin-top: -4px; }
 .row-wrap { display: flex; gap: 8px; align-items: center; }
 .row-wrap input[type="date"] { flex: 1; }
@@ -279,6 +286,13 @@ h2 { font-size: 17px; margin: 0 0 10px; letter-spacing: -0.01em; }
 .cat-grid button:active { transform: scale(.96); }
 .sheet-actions { display: flex; gap: 8px; }
 .sheet-actions .btn { flex: 1; }
+.sticky-actions {
+  position: sticky; bottom: calc(-16px - var(--safe-b)); z-index: 1;
+  margin: 0 -16px calc(-16px - var(--safe-b)); padding: 10px 16px calc(16px + var(--safe-b));
+  background: var(--surface); border-top: 1px solid var(--border);
+}
+.sticky-actions .btn.primary { display: block; min-width: 0; line-height: 46px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.btn.dim { opacity: .45; }
 .shake { animation: shake .3s; }
 @keyframes shake { 25% { transform: translateX(-6px); } 75% { transform: translateX(6px); } }
 

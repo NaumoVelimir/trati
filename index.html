@@ -180,7 +180,7 @@
   <div class="sheet-backdrop hidden" id="backdrop"></div>
 
   <div class="sheet hidden" id="sheet-tx" role="dialog">
-    <div class="sheet-grip"></div>
+    <div class="sheet-head"><div class="sheet-grip"></div><button type="button" class="sheet-x" data-i18n-aria="close">×</button></div>
     <div class="amount-row">
       <input id="tx-amount" inputmode="decimal" placeholder="0" autocomplete="off" data-i18n-aria="amount">
       <button class="btn small" id="tx-000">000</button>
@@ -195,16 +195,16 @@
       <input type="date" id="tx-date" data-i18n-aria="date">
     </div>
     <input id="tx-note" data-i18n-ph="note_ph" placeholder="Comment (optional)" autocomplete="off">
-    <p class="muted small" id="tx-hint" data-i18n="tap_category">Tap a category to save</p>
+    <p class="muted small" id="tx-hint" data-i18n="tap_category">Pick a category, then Save</p>
     <div class="cat-grid" id="tx-cats"></div>
-    <div class="sheet-actions hidden" id="tx-edit-actions">
+    <div class="sheet-actions sticky-actions" id="tx-actions">
       <button class="btn danger" id="tx-delete" data-i18n="delete">Delete</button>
-      <button class="btn primary" id="tx-save" data-i18n="save">Save</button>
+      <button class="btn primary" id="tx-save">Save</button>
     </div>
   </div>
 
   <div class="sheet hidden" id="sheet-cat" role="dialog">
-    <div class="sheet-grip"></div>
+    <div class="sheet-head"><div class="sheet-grip"></div><button type="button" class="sheet-x" data-i18n-aria="close">×</button></div>
     <h2 id="cat-sheet-title"></h2>
     <div class="cat-edit-row">
       <input id="cat-emoji" class="emoji-input" maxlength="4" data-i18n-aria="icon">
@@ -219,7 +219,7 @@
   </div>
 
   <div class="sheet hidden" id="sheet-rec" role="dialog">
-    <div class="sheet-grip"></div>
+    <div class="sheet-head"><div class="sheet-grip"></div><button type="button" class="sheet-x" data-i18n-aria="close">×</button></div>
     <h2 id="rec-sheet-title"></h2>
     <input id="rec-name" data-i18n-ph="rec_name_ph" placeholder="Name (e.g. Rent)" autocomplete="off">
     <div class="amount-row">
@@ -247,7 +247,7 @@
   </div>
 
   <div class="sheet hidden" id="sheet-suggest" role="dialog">
-    <div class="sheet-grip"></div>
+    <div class="sheet-head"><div class="sheet-grip"></div><button type="button" class="sheet-x" data-i18n-aria="close">×</button></div>
     <h2 data-i18n="rec_found">Recurring payments found</h2>
     <p class="muted small" data-i18n="rec_found_hint">Tick the ones that are still active. Amount and day can be changed later.</p>
     <ul class="rows suggest" id="suggest-list"></ul>
@@ -258,7 +258,7 @@
   </div>
 
   <div class="sheet hidden" id="sheet-import" role="dialog">
-    <div class="sheet-grip"></div>
+    <div class="sheet-head"><div class="sheet-grip"></div><button type="button" class="sheet-x" data-i18n-aria="close">×</button></div>
     <h2 data-i18n="import_title">Import from Money Manager</h2>
     <div id="import-preview"></div>
     <div class="sheet-actions">

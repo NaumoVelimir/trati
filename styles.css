@@ -179,6 +179,15 @@ h2 { font-size: 17px; margin: 0 0 10px; letter-spacing: -0.01em; }
 #bars text { fill: var(--muted); font-size: 10px; font-family: inherit; }
 #bars .avg { stroke: var(--ink-2); stroke-width: 1; stroke-dasharray: 3 3; }
 
+/* ----- свёрнутые блоки ----- */
+.fold { overflow: hidden; transition: max-height .25s ease; }
+.fold.closed {
+  -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 44px), transparent);
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 44px), transparent);
+}
+.fold-btn { display: block; width: 100%; margin-top: 6px; padding: 8px 0 0; color: var(--accent); font-size: 15px; font-weight: 550; }
+.fold-btn:active { opacity: .6; }
+
 /* ----- операции ----- */
 .day-group + .day-group { margin-top: 14px; }
 .day-head { display: flex; justify-content: space-between; font-size: 13px; color: var(--muted); padding: 0 4px 4px; }

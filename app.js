@@ -76,7 +76,7 @@ const T = {
     no_category: 'No category', rec_hide: '🔁 Hide recurring', rec_show: '🔁 Recurring hidden — show',
     by_days: 'By day', by_weeks: 'By week', by_months: 'By month', by_years: 'By year',
     avg_day: 'avg {v} per day', avg_week: 'avg {v} per week', avg_month: 'avg {v} per month', avg_year: 'avg {v} per year',
-    transactions: 'Transactions', empty_tx: 'Nothing yet. Tap “+” to add an expense.', show_more: 'Show more ({n})',
+    transactions: 'Transactions', empty_tx: 'Nothing yet. Tap “+” to add an expense.', show_more: 'Show more ({n})', fold_open: 'Show all · {n}', fold_close: 'Collapse',
     recurring_tag: '🔁 recurring', choose_cat: 'Choose a category', undo: 'Undo', restore_btn: 'Restore', saved: 'Saved',
     deleted: 'Expense deleted', expenses_n: ['{n} expense', '{n} expenses'], archived: 'archived', cat_new: 'New category',
     cat_title: 'Category', archive: 'Archive', unarchive: 'Unarchive', cat_archived: 'Category archived — old expenses are kept',
@@ -134,7 +134,7 @@ const T = {
     no_category: 'Без категории', rec_hide: '🔁 Скрыть регулярные траты', rec_show: '🔁 Регулярные траты скрыты — показать',
     by_days: 'По дням', by_weeks: 'По неделям', by_months: 'По месяцам', by_years: 'По годам',
     avg_day: 'в среднем {v} в день', avg_week: 'в среднем {v} в нед.', avg_month: 'в среднем {v} в мес.', avg_year: 'в среднем {v} в год',
-    transactions: 'Операции', empty_tx: 'Пока пусто. Нажмите «+», чтобы добавить трату.', show_more: 'Показать ещё ({n})',
+    transactions: 'Операции', empty_tx: 'Пока пусто. Нажмите «+», чтобы добавить трату.', show_more: 'Показать ещё ({n})', fold_open: 'Показать все · {n}', fold_close: 'Свернуть',
     recurring_tag: '🔁 регулярная', choose_cat: 'Выберите категорию', undo: 'Отменить', restore_btn: 'Вернуть', saved: 'Сохранено',
     deleted: 'Трата удалена', expenses_n: ['{n} трата', '{n} траты', '{n} трат'], archived: 'в архиве', cat_new: 'Новая категория',
     cat_title: 'Категория', archive: 'В архив', unarchive: 'Вернуть из архива', cat_archived: 'Категория в архиве: старые траты сохранены',
@@ -231,6 +231,7 @@ const S = {
   from: null, to: null,
   catFilter: null,
   txLimit: 60,
+  open: { tx: false, cat: false },  // раскрыты ли блоки «Операции» и «По категориям»
 };
 const catById = (id) => S.cats.find((c) => c.id === id);
 const catName = (c) => (c ? c.name || t(`cat_${c.key}`) : t('no_category'));
@@ -542,6 +543,7 @@ function renderMain() {
 
   renderBars(cur);
   renderTxList(list, cur);
+  applyFold('cat', '#cat-list > li', cats.length);
 }
 
 function arcPath(cx, cy, r0, r1, a0, a1) {
@@ -581,7 +583,7 @@ function renderDonut(cats, total, cur) {
     if (isSel) { path.classList.add('sel'); selSeg = s; }
     path.addEventListener('click', (e) => {
       e.stopPropagation();
-      if (s.id === '__other') { document.querySelector(`#cat-list li:nth-child(${CHART_MAX + 1})`)?.scrollIntoView({ behavior: 'smooth', block: 'center' }); return; }
+      if (s.id === '__other') { if (!S.open.cat) toggleFold('cat'); document.querySelector(`#cat-list li:nth-child(${CHART_MAX + 1})`)?.scrollIntoView({ behavior: 'smooth', block: 'center' }); return; }
       S.catFilter = S.catFilter === s.id ? null : s.id; S.txLimit = 60; rerender();
     });
     const title = document.createElementNS('http://www.w3.org/2000/svg', 'title');
@@ -731,7 +733,7 @@ function renderTxList(list, cur) {
   items = [...items].sort((a, b) => (b.date + (b.createdAt || '')).localeCompare(a.date + (a.createdAt || '')));
   const fc = S.catFilter && catById(S.catFilter);
   $('#tx-title').textContent = fc ? `${fc.emoji} ${catName(fc)}` : t('transactions');
-  if (!items.length) { box.append(el('div', 'empty', esc(t('empty_tx')))); return; }
+  if (!items.length) { box.append(el('div', 'empty', esc(t('empty_tx')))); applyFold('tx', '.tx-row', 0); return; }
   const shown = items.slice(0, S.txLimit);
   let group, groupDate;
   const dayTotals = new Map();
@@ -757,6 +759,56 @@ function renderTxList(list, cur) {
     more.onclick = () => { S.txLimit += 100; renderMain(); };
     box.append(more);
   }
+  applyFold('tx', '.tx-row', items.length);
+}
+
+/* Свёрнутый блок: видно 2,5 строки, остальное под градиентом; кнопка раскрывает и сворачивает */
+const FOLD_ROWS = 2.5;
+function foldHeight(box, rowSel) {
+  const rows = box.querySelectorAll(rowSel);
+  const n = Math.floor(FOLD_ROWS);
+  if (rows.length <= n) return 0;
+  const r = rows[n], top = box.getBoundingClientRect().top;
+  const b = r.getBoundingClientRect();
+  return Math.round(b.top - top + b.height * (FOLD_ROWS - n));
+}
+function applyFold(key, rowSel, count) {
+  const box = $(`#${key}-fold`), btn = $(`#${key}-fold-btn`);
+  box.style.transition = 'none';
+  box.style.maxHeight = '';
+  const h = box.offsetParent ? foldHeight(box, rowSel) : 0;
+  const foldable = h > 0 && box.scrollHeight > h + 24;
+  btn.classList.toggle('hidden', !foldable);
+  const closed = foldable && !S.open[key];
+  box.classList.toggle('closed', closed);
+  box.dataset.h = h;
+  if (closed) box.style.maxHeight = h + 'px';
+  btn.dataset.n = count;
+  btn.textContent = S.open[key] ? t('fold_close') : t('fold_open', { n: count });
+  btn.setAttribute('aria-expanded', String(!!S.open[key]));
+}
+function toggleFold(key) {
+  const box = $(`#${key}-fold`), btn = $(`#${key}-fold-btn`);
+  const h = +box.dataset.h;
+  S.open[key] = !S.open[key];
+  box.style.transition = '';
+  if (S.open[key]) {
+    box.style.maxHeight = h + 'px';
+    void box.offsetHeight;
+    box.style.maxHeight = box.scrollHeight + 'px';
+    box.classList.remove('closed');
+    box.addEventListener('transitionend', () => { if (S.open[key]) box.style.maxHeight = ''; }, { once: true });
+  } else {
+    box.style.maxHeight = box.scrollHeight + 'px';
+    void box.offsetHeight;
+    box.style.maxHeight = h + 'px';
+    box.classList.add('closed');
+    // если начало блока ушло за верх экрана — вернуть его в поле зрения
+    const card = box.closest('.card');
+    if (card.getBoundingClientRect().top < 0) card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+  btn.textContent = S.open[key] ? t('fold_close') : t('fold_open', { n: btn.dataset.n });
+  btn.setAttribute('aria-expanded', String(S.open[key]));
 }
 
 /* ============================== Ввод трат ============================== */
@@ -1457,6 +1509,8 @@ function bind() {
     S.settings.viewCur = CUR_ORDER[(CUR_ORDER.indexOf(S.settings.viewCur) + 1) % CUR_ORDER.length];
     await saveSettings(); rerender();
   };
+  $('#tx-fold-btn').onclick = () => toggleFold('tx');
+  $('#cat-fold-btn').onclick = () => toggleFold('cat');
   $('#clear-filter').onclick = () => { S.catFilter = null; rerender(); };
   $('#rec-toggle').onclick = async () => { S.settings.hideRec = !S.settings.hideRec; await saveSettings(); rerender(); };
   $('#donut').addEventListener('click', () => { if (S.catFilter) { S.catFilter = null; rerender(); } });

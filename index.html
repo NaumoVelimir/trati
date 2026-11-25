@@ -55,12 +55,20 @@
         <button class="link small rec-toggle hidden" id="rec-toggle"></button>
       </section>
 
+
+      <section class="card">
+        <div class="card-head"><h2 id="tx-title"></h2></div>
+        <div class="fold" id="tx-fold"><div id="tx-list"></div></div>
+        <button class="fold-btn hidden" id="tx-fold-btn"></button>
+      </section>
+
       <section class="card">
         <div class="card-head">
           <h2 data-i18n="by_category">By category</h2>
           <button class="link hidden" id="clear-filter" data-i18n="clear_filter">Clear filter</button>
         </div>
-        <ul class="cat-list" id="cat-list"></ul>
+        <div class="fold" id="cat-fold"><ul class="cat-list" id="cat-list"></ul></div>
+        <button class="fold-btn hidden" id="cat-fold-btn"></button>
       </section>
 
       <section class="card" id="bars-card">
@@ -71,10 +79,6 @@
         <div id="bars"></div>
       </section>
 
-      <section class="card">
-        <div class="card-head"><h2 id="tx-title"></h2></div>
-        <div id="tx-list"></div>
-      </section>
       <div class="fab-spacer"></div>
     </main>
 
